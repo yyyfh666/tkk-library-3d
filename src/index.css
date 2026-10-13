@@ -1,0 +1,504 @@
+/* ==================================================================
+ * 昼夜两套 UI 主题。
+ * 页面底色和 3D 场景的 scene.background 是同一个颜色 —— 参考图那种
+ * "模型浮在一整个色块上"的效果就是这么来的，画布不能有自己的天空。
+ * 两边用同样的 1.2s 过渡，切换时才不会一个跳一个滑。
+ * ================================================================== */
+
+:root {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  overflow: hidden;
+  font-family: 'PingFang SC', 'HarmonyOS Sans SC', 'Microsoft YaHei', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  position: fixed;
+  inset: 0;
+  background: var(--page);
+  color: var(--ink);
+  transition: background 1.2s ease, color 1.2s ease;
+}
+
+.app[data-phase='day'] {
+  --page: #f4efe7;
+  --ink: #2b2622;
+  --ink-soft: #6e6558;
+  --ink-faint: #a2957f;
+  --panel: rgba(255, 255, 255, 0.72);
+  --panel-line: rgba(43, 38, 34, 0.12);
+  --accent: #c4573a;
+  --accent-ink: #fff8f2;
+}
+
+.app[data-phase='night'] {
+  --page: #0c1420;
+  --ink: #eef2f7;
+  --ink-soft: #93a4b8;
+  --ink-faint: #5d6d82;
+  --panel: rgba(19, 29, 43, 0.72);
+  --panel-line: rgba(190, 214, 255, 0.14);
+  --accent: #ffb454;
+  --accent-ink: #1b1206;
+}
+
+.stage {
+  position: absolute;
+  inset: 0;
+}
+
+.stage canvas {
+  display: block;
+}
+
+/* ---------------- 热点标签层 ----------------
+   标签位置由引擎每帧直接写 transform。
+   ⚠️ 这里**绝对不能**给 transform 加 transition —— 会和每帧的写入打架，
+   标签会拖着走、抖成一团。过渡只能加在颜色/边框这类属性上。 */
+.hotspot-layer {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.hotspot {
+  position: absolute;
+  left: 0;
+  top: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  cursor: pointer;
+  pointer-events: auto;
+  backdrop-filter: blur(8px);
+  transition: background 1.2s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.hotspot:hover {
+  border-color: var(--accent);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+}
+
+.hotspot__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.hotspot--enter {
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+/* ---------------- 左上角标识 ---------------- */
+.brand {
+  position: absolute;
+  top: 26px;
+  left: 28px;
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  pointer-events: none;
+  transition: color 1.2s ease;
+}
+
+.brand__mark {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 20px;
+  font-weight: 700;
+  transition: background 1.2s ease, color 1.2s ease;
+}
+
+.brand__text {
+  display: flex;
+  flex-direction: column;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  line-height: 1.25;
+}
+
+.brand__text em {
+  font-size: 8.5px;
+  font-style: normal;
+  font-weight: 400;
+  letter-spacing: 1.6px;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 右上角昼夜开关 ---------------- */
+.phase-toggle {
+  position: absolute;
+  top: 26px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 18px 9px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background 1.2s ease, color 1.2s ease, border-color 1.2s ease, transform 0.2s ease;
+}
+
+.phase-toggle:hover {
+  transform: translateY(-1px);
+}
+
+.phase-toggle__icon {
+  font-size: 15px;
+  color: var(--accent);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 左栏标题卡 ---------------- */
+.intro {
+  position: absolute;
+  left: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 330px;
+  transition: opacity 0.4s ease;
+}
+
+.intro__eyebrow {
+  margin: 0 0 14px;
+  font-size: 10px;
+  letter-spacing: 2.4px;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+.intro__title {
+  margin: 0;
+  font-size: 56px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  line-height: 1.05;
+}
+
+.intro__motto {
+  margin: 12px 0 0;
+  font-size: 13px;
+  letter-spacing: 1.2px;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+.intro__body {
+  margin: 18px 0 26px;
+  font-size: 13px;
+  line-height: 2;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+.intro__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 13px 26px;
+  border: none;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  cursor: pointer;
+  transition: background 1.2s ease, color 1.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.intro__cta:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.16);
+}
+
+.intro__cta:disabled,
+.chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------------- 底部热点条 ---------------- */
+.chips {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 7px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(10px);
+  transition: background 1.2s ease, border-color 1.2s ease;
+}
+
+.chip {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.6px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.chip:hover {
+  color: var(--ink);
+}
+
+.chip--active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---------------- 左下操作提示 ---------------- */
+.hint-bar {
+  position: absolute;
+  left: 30px;
+  bottom: 34px;
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: 0.8px;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 右下控制键 ---------------- */
+.scene-controls {
+  position: absolute;
+  right: 28px;
+  bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ctl {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 10px 16px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  transition: background 1.2s ease, color 1.2s ease, border-color 0.25s ease, transform 0.2s ease;
+}
+
+.ctl:hover:not(:disabled) {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+}
+
+.ctl:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ctl--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+.ctl--square {
+  width: 38px;
+  height: 38px;
+  padding: 0;
+  justify-content: center;
+  font-size: 15px;
+}
+
+/* ---------------- 右侧信息卡 ---------------- */
+.info-card {
+  position: absolute;
+  right: 28px;
+  top: 92px;
+  width: 296px;
+  padding: 22px 22px 20px;
+  border: 1px solid var(--panel-line);
+  border-radius: 18px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.1);
+  animation: card-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background 1.2s ease, border-color 1.2s ease;
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+.info-card__close {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.info-card__close:hover {
+  background: var(--panel-line);
+  color: var(--ink);
+}
+
+.info-card__kind {
+  margin: 0 0 8px;
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: var(--ink-faint);
+}
+
+.info-card__title {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: 1px;
+}
+
+.info-card__body {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.95;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+.info-card__cta {
+  margin-top: 16px;
+  padding: 9px 18px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.info-card__cta:hover {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---------------- 大厅里的标题（换掉左栏那张大卡） ---------------- */
+.hall-title {
+  position: absolute;
+  left: 56px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 300px;
+  animation: card-in 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hall-title__eyebrow {
+  margin: 0 0 12px;
+  font-size: 10px;
+  letter-spacing: 2.4px;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+.hall-title__title {
+  margin: 0;
+  font-size: 48px;
+  font-weight: 700;
+  letter-spacing: 4px;
+}
+
+.hall-title__motto {
+  margin: 12px 0 0;
+  font-size: 13px;
+  letter-spacing: 1.2px;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 场景切换的黑幕 ---------------- */
+.fade {
+  position: absolute;
+  inset: 0;
+  background: #0a0f16;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.45s ease;
+}
+
+.fade--on {
+  opacity: 1;
+}
+
+@media (max-width: 1100px) {
+  .intro {
+    left: 32px;
+    width: 280px;
+  }
+  .intro__title {
+    font-size: 42px;
+  }
+}
