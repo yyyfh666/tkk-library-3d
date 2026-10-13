@@ -131,6 +131,14 @@ const shoot = async (name) => {
   console.log(`  截图 → ${OUT_DIR}\\${name}.png`)
 }
 
+/**
+ * "泵帧"：无头软渲染只有 1~2fps，`await sleep(1600)` 可能连**一帧**都没走完，
+ * 于是"按了键没动"这类断言会随机红。截图会强制走一帧，用它来推进（不落盘）。
+ */
+const pump = async (n = 1) => {
+  for (let i = 0; i < n; i++) await send('Page.captureScreenshot', { format: 'jpeg', quality: 1 })
+}
+
 const waitFor = async (expression, label, timeoutMs = 30000) => {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
@@ -176,13 +184,16 @@ await shoot('interior-19-walk-pick')
 // —— 键盘接线自检：合成一次真实 keydown，确认事件能到控制器（只验证"动了一下"）——
 await evaluate(`__stage.setWalkPose(0, 9.4, 0, 0, 0)`)
 await sleep(600)
-const before = await evaluate(`__stage.app.worlds.hall.walker.getPose().z`)
+const kbBefore = await evaluate(`(() => {
+  const w = __stage.app.worlds.hall.walker
+  return { z: w.getPose().z, enabled: w.enabled, active: __stage.walkActive() }
+})()`)
 await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }))`)
-await sleep(1600)
+await pump(4) // 见 pump 的注释：只 sleep 的话可能一帧都没有
 await evaluate(`window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }))`)
 const after = await evaluate(`__stage.app.worlds.hall.walker.getPose().z`)
 console.log(
-  `\n键盘接线：${Math.abs(after - before) > 0.02 ? `✔ W 键生效（z ${before.toFixed(2)} → ${after.toFixed(2)}）` : '✘ 按了 W 没动'}`,
+  `\n键盘接线：${Math.abs(after - kbBefore.z) > 0.02 ? `✔ W 键生效（z ${kbBefore.z.toFixed(2)} → ${after.toFixed(2)}）` : `✘ 按了 W 没动（enabled=${kbBefore.enabled} walkActive=${kbBefore.active}）`}`,
 )
 
 // —— 走路仿真（60Hz 步进，不受渲染帧率影响）——
@@ -197,6 +208,143 @@ await simWalk('一层撞中庭栏杆（10.5,0 向西 2.5s）', '[10.5, 0, 1.5708
 await simWalk('二层回廊撞栏杆（10.8,8.6 向中庭 3s）', '[10.8, 8.6, 0.9, 0, 4.2]', 3.0)
 await simWalk('书巷里走（11,7.4 向东 2s）', '[11, 7.4, -1.5708, 0, 0]', 2.0)
 await simWalk('下楼梯（14.2,-10 向南 5s）', '[14.2, -10, 3.1416, 0, 4.2]', 5.0)
+
+/* ==================================================================
+ * 场景二/三：机器人 A* 找书 + 打卡、全息触发、书目拾取
+ * 全走"UI 那条路"（填输入框 → 点结果按钮 → 机器人出发），但不依赖文案：
+ * 元素都用类名找，所以改标题/按钮字不会把这段弄断。
+ * ================================================================== */
+console.log('\n三套新交互（导览机器人 / 全息投影 / 书架信息屏）')
+await evaluate(`__stage.app.setPhaseTarget(0)`) // 上一段停在夜里，这里回白天，图和探针才好读
+await sleep(2500)
+
+// ① A* 规划：从南环到北环必须绕过中庭 —— 中庭在一层是楼板上的一个洞，
+//    碰撞盒里没有任何一条能表达它，靠的是 hallLayout.ACCESS.voidRects 显式封禁。
+const nav = await evaluate(`(() => {
+  const p = __stage.navPlan([0, 8.1], [0, -8.0])
+  if (!p) return { ok: false }
+  let len = 0
+  for (let i = 1; i < p.length; i++) len += Math.hypot(p[i][0] - p[i - 1][0], p[i][1] - p[i - 1][1])
+  return {
+    ok: true,
+    points: p.length,
+    len: +len.toFixed(1),
+    throughAtrium: p.some(([x, z]) => Math.abs(x) < 8 && Math.abs(z) < 5.5),
+  }
+})()`)
+console.log(
+  nav.ok
+    ? `A* 南环→北环：${nav.points} 个拐点 / 全长 ${nav.len}m（直线 16.1m）` +
+      `${nav.throughAtrium ? ' ✘ 穿了中庭（机器人会飘在空中）' : ' ✔ 绕开了中庭'}` +
+      `${nav.len > 25 ? '' : ' ⚠️ 比绕行应有的长度短，可疑'}`
+    : '✘ A* 找不到路径',
+)
+
+// ② 找书：填搜索框 → 点第一条结果 → 60Hz 推进到机器人到达 → 看书卡
+await evaluate(`(() => {
+  const input = document.querySelector('.hud-search__input')
+  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set
+  setter.call(input, '建筑')
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  // 用 requestSubmit 而不是 click()：这条走的就是"按回车"那条路（React 的 onSubmit）
+  document.querySelector('.hud-search').requestSubmit()
+  return true
+})()`)
+await waitFor(`document.querySelectorAll('.hud-result').length > 0`, '搜索结果渲染出来', 20000)
+const wantBook = await evaluate(`document.querySelector('.hud-result__title').textContent`)
+await evaluate(`document.querySelector('.hud-result').click()`)
+const enRoute = await evaluate(`__stage.robotState()`)
+console.log(`找书「建筑」→ 点了第一条「${wantBook}」：机器人 ${enRoute.mode} / ${enRoute.label}`)
+await evaluate(`__stage.simulateRobot(60)`)
+const card = await evaluate(`(() => {
+  const st = __stage.hallState()
+  const r = __stage.robotState()
+  return {
+    selected: st.selectedBook?.title ?? null,
+    board: st.selectedBook?.board ?? null,
+    shelf: st.selectedBook?.shelfId ?? null,
+    domCard: !!document.querySelector('.hud-card__title'),
+    x: +r.x.toFixed(2),
+    z: +r.z.toFixed(2),
+  }
+})()`)
+console.log(
+  card.selected === wantBook
+    ? `✔ 机器人已到达（x ${card.x} z ${card.z}）并弹出书卡：《${card.selected}》${card.shelf} 第 ${card.board} 层${card.domCard ? '（DOM 也在）' : ' ⚠️ 但 DOM 书卡没渲染'}`
+    : `✘ 没到/没弹卡：selectedBook=${card.selected}（期望 ${wantBook}），机器人停在 x ${card.x} z ${card.z}`,
+)
+await shoot('interior-21-find-book')
+
+// ③ 打卡：点"签到打卡" → 推进 → 计数 +1 且横幅出现
+await evaluate(`document.querySelector('.hud-actions .hud-btn--primary').click()`)
+await evaluate(`__stage.simulateRobot(45)`)
+await sleep(900)
+const checkinView = await evaluate(`(() => {
+  const st = __stage.hallState()
+  return { count: st.checkin.count, visible: st.checkin.visible, toast: !!document.querySelector('.checkin-toast') }
+})()`)
+console.log(
+  checkinView.count === 1 && checkinView.toast
+    ? '✔ 签到打卡：机器人走到中庭打卡点，横幅出现（第 1 次）'
+    : `✘ 打卡异常：count=${checkinView.count} visible=${checkinView.visible} toast=${checkinView.toast}`,
+)
+await shoot('interior-22-checkin')
+
+// ④ 全息投影：走过去触发 + 故事卡出现
+await evaluate(`__stage.setWalkPose(0, -8.2, 0, 0, 0)`)
+let holo = null
+for (let i = 0; i < 14 && !holo?.near; i++) {
+  await sleep(400)
+  holo = await evaluate(`(() => ({ ...__stage.hologramState(), dom: !!document.querySelector('.hud-card--holo') }))()`)
+}
+console.log(
+  holo?.near && holo.dom
+    ? `✔ 全息投影：走近触发（fade ${holo.fade.toFixed(2)}），陈嘉庚故事卡已弹出`
+    : `✘ 全息没触发：near=${holo?.near} fade=${holo?.fade} dom=${holo?.dom}`,
+)
+await pump(3) // 淡入是指数逼近，得真走几帧才有数字
+await sleep(400)
+holo = await evaluate(`(() => ({ ...__stage.hologramState(), dom: !!document.querySelector('.hud-card--holo') }))()`)
+console.log(`  （淡入进度 fade=${holo.fade.toFixed(2)}，1 = 全亮）`)
+await shoot('interior-23-hologram')
+
+// ⑤ 书目拾取：第一视角盯着书脊 → 书架屏翻到那本书（DOM 侧给出书名）
+// 书在层板上一排排摞着，层与层之间是有空隙的 —— 俯仰角差一点就打空，所以给几个候选机位。
+const BOOK_POSES = [
+  [12.0, 8.9, -1.5708, -0.3, 0],
+  [12.4, 8.9, -1.5708, -0.45, 0],
+  [12.0, 6.4, -1.5708, -0.3, 0],
+]
+let hover = null
+let usedPose = null
+for (const pose of BOOK_POSES) {
+  await evaluate(`__stage.setWalkPose(${pose.join(',')})`)
+  for (let i = 0; i < 4 && !hover; i++) {
+    await pump()
+    await sleep(200)
+    hover = await evaluate(`__stage.hallState().hoveredBook`)
+  }
+  if (hover) {
+    usedPose = pose
+    break
+  }
+}
+console.log(
+  hover
+    ? `✔ 书目拾取：站在 ${JSON.stringify(usedPose)} 盯着书脊 → 命中《${hover.title}》${hover.callNumber} 第 ${hover.board} 层 ${hover.status}`
+    : '✘ 三个候选机位都没拾取到书',
+)
+await shoot('interior-24-book-pick')
+
+// ⑥ 书架信息屏：正脸看 S04 那块屏（书名是第 ② 步找书"钉"住的那本，悬停移开也不会掉）
+await evaluate(`__stage.setWalkPose(2.65, -6.55, -0.384, 0.06, 0)`)
+await pump(2)
+await sleep(300)
+await shoot('interior-25-shelf-screen')
+
+// 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
+await evaluate(`__stage.commandRobot(null)`)
+await evaluate(`__stage.simulateRobot(20)`)
 
 // —— 曝光探针：用数字守住"过曝 / 死黑"，不靠肉眼看截图 ——
 // 固定机位再测：白天、入口内一步（最亮的白瓷砖 + 顶光都在这张画面里）

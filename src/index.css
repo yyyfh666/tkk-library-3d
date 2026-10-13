@@ -570,3 +570,395 @@ body {
   pointer-events: none;
   white-space: nowrap;
 }
+
+/* ==================================================================
+ * 三楼大厅的交互面板（场景二/三）
+ * 右栏是一列卡片：导览台常驻，书卡 / 全息故事 / 热点信息卡按需插进来。
+ * ================================================================== */
+
+.hall-rail {
+  position: absolute;
+  right: 28px;
+  top: 92px;
+  width: 296px;
+  max-height: calc(100vh - 190px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  /* 滚动条别把卡片挤窄（Firefox） */
+  scrollbar-width: thin;
+}
+
+.hall-rail::-webkit-scrollbar {
+  width: 6px;
+}
+
+.hall-rail::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--panel-line);
+}
+
+.hud-card {
+  position: relative;
+  flex: none;
+  padding: 16px 16px 14px;
+  border: 1px solid var(--panel-line);
+  border-radius: 16px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.08);
+  animation: card-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background 1.2s ease, border-color 1.2s ease;
+}
+
+/* 右栏里的信息卡不再自己定位（它原本是给岛屿全屏用的） */
+.hall-rail .info-card {
+  position: static;
+  width: auto;
+  animation: card-in 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.hud-card--holo {
+  border-color: rgba(127, 224, 255, 0.45);
+  box-shadow: 0 14px 34px rgba(63, 182, 232, 0.18);
+}
+
+.hud-card__kind {
+  margin: 0 0 8px;
+  font-size: 9.5px;
+  letter-spacing: 1.8px;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+.hud-card__title {
+  margin: 0 0 4px;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.6px;
+}
+
+.hud-card__title em {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.6px;
+  color: var(--ink-faint);
+}
+
+.hud-card__sub {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+.hud-card__note {
+  margin: 10px 0 0;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--ink-faint);
+  transition: color 1.2s ease;
+}
+
+.hud-card__close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+
+.hud-card__close:hover {
+  background: var(--panel-line);
+  color: var(--ink);
+}
+
+.hud-card__link {
+  margin-top: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: 11px;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+}
+
+.hud-card__link:hover {
+  color: var(--accent);
+}
+
+/* ---------------- 机器人状态 ---------------- */
+.robot-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+.robot-line__dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ink-faint);
+}
+
+.robot-line--busy .robot-line__dot {
+  background: #e0a03c;
+  animation: robot-pulse 1s ease-in-out infinite;
+}
+
+.robot-line--ok .robot-line__dot {
+  background: #4fae74;
+}
+
+.robot-line--bad .robot-line__dot {
+  background: #d0553f;
+}
+
+@keyframes robot-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------------- 找书 ---------------- */
+.hud-search {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.hud-search__input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 12.5px;
+  outline: none;
+  transition: border-color 0.25s ease;
+}
+
+.hud-search__input::placeholder {
+  color: var(--ink-faint);
+}
+
+.hud-search__input:focus {
+  border-color: var(--accent);
+}
+
+.hud-search__btn {
+  padding: 8px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent);
+  font-family: inherit;
+  font-size: 12.5px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.hud-search__btn:hover:not(:disabled) {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.hud-search__btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.hud-results {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.hud-result {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: rgba(127, 127, 127, 0.08);
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.hud-result:hover {
+  border-color: var(--accent);
+}
+
+.hud-result__title {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: color 1.2s ease;
+}
+
+.hud-result__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
+  font-size: 10.5px;
+  color: var(--ink-faint);
+}
+
+.hud-result__meta em {
+  font-style: normal;
+  padding: 1px 6px;
+  border-radius: 999px;
+  font-size: 10px;
+}
+
+.is-ok {
+  color: #4fae74;
+}
+
+.hud-result__meta em.is-ok {
+  background: rgba(79, 174, 116, 0.16);
+}
+
+.is-out {
+  color: #d0553f;
+}
+
+.hud-result__meta em.is-out {
+  background: rgba(208, 85, 63, 0.16);
+}
+
+/* ---------------- 按钮 ---------------- */
+.hud-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.hud-btn {
+  flex: 1;
+  padding: 9px 12px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  cursor: pointer;
+  transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+
+.hud-btn:hover {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+
+.hud-btn--primary {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hud-btn--primary:hover {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---------------- 书卡 ---------------- */
+.hud-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin: 0;
+}
+
+.hud-meta dt {
+  margin: 0 0 3px;
+  font-size: 10px;
+  letter-spacing: 1.2px;
+  color: var(--ink-faint);
+}
+
+.hud-meta dd {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--ink);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 全息故事时间轴 ---------------- */
+.holo-timeline {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.holo-timeline li {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.holo-timeline__year {
+  flex: none;
+  width: 62px;
+  color: #4aa8cf;
+  letter-spacing: 0.4px;
+}
+
+.holo-timeline__what {
+  color: var(--ink-soft);
+  transition: color 1.2s ease;
+}
+
+/* ---------------- 打卡横幅 ---------------- */
+.checkin-toast {
+  position: absolute;
+  left: 50%;
+  top: 96px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 22px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: var(--panel);
+  backdrop-filter: blur(14px);
+  color: var(--ink);
+  font-size: 13px;
+  letter-spacing: 1.2px;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.12);
+  animation: card-in 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: background 1.2s ease, border-color 1.2s ease, color 1.2s ease;
+  pointer-events: none;
+}

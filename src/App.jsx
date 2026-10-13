@@ -4,6 +4,7 @@ import { ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './scene/hotspots.js'
 import IntroPanel from './ui/IntroPanel.jsx'
 import HotspotChips from './ui/HotspotChips.jsx'
 import InfoCard from './ui/InfoCard.jsx'
+import { HallGuide, BookCard, HoloStory, CheckinToast } from './ui/HallHUD.jsx'
 import { SceneControls, Hint } from './ui/Controls.jsx'
 
 export default function App() {
@@ -183,7 +184,19 @@ export default function App() {
         onReset={isIsland ? resetView : resetHallView}
       />
 
-      <InfoCard hotspot={selected} onClose={() => setSelected(null)} onEnterHall={enterHall} />
+      <CheckinToast />
+
+      {/* 大厅的右栏：导览台常驻，书卡 / 全息故事 / 热点信息卡按需插进同一列（各占一行，不打架） */}
+      {isIsland ? (
+        <InfoCard hotspot={selected} onClose={() => setSelected(null)} onEnterHall={enterHall} />
+      ) : (
+        <div className="hall-rail">
+          <HallGuide />
+          <BookCard />
+          <HoloStory />
+          <InfoCard hotspot={selected} onClose={() => setSelected(null)} />
+        </div>
+      )}
 
       <div className={fading ? 'fade fade--on' : 'fade'} aria-hidden="true" />
     </div>
