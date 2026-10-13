@@ -126,6 +126,14 @@ const SPECS = {
     bumpScale: 0.004,
     roughness: 0.96,
   },
+  hallColumn: {
+    color: C.hallWall, // 白色凹槽圆柱（环廊柱），bump 是竖槽
+    type: 'standard',
+    map: 'plaster',
+    bumpMap: 'fluteBump',
+    bumpScale: 0.02,
+    roughness: 0.9,
+  },
   hallWood: {
     color: '#FFFFFF', // 胡桃木色画在贴图里
     nightColor: '#2E241F',
@@ -241,6 +249,7 @@ const SPECS = {
   },
   hallCurtain: { color: '#EFECE4' }, // 窗边白纱帘
   hallExhibit: { color: '#EDE6D6' }, // 展板 / 书法条幅
+  hallCarving: { color: C.hallCarving }, // 根雕：深木色，不贴图（要的就是团块的剪影感）
 }
 
 /**

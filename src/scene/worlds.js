@@ -5,7 +5,8 @@ import { buildIsland, buildFloatingRocks, createContactShadow, animateFloatingRo
 import { buildLibrary } from './library.js'
 import { buildProps } from './props.js'
 import { createHotspots, ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './hotspots.js'
-import { buildHall, driveRobot, updateWalls, HALL } from './hall.js'
+import { buildHall, driveRobot, updateWalls } from './hall.js'
+import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS } from './hallLayout.js'
 import { DAY_NIGHT } from './palette.js'
 
 /** 相机初始机位：略高的俯视，配长焦，才有"微缩模型"那种被压扁的玩具感 */
@@ -132,37 +133,31 @@ function createIslandWorld(renderer, materials, { onHotspotSelect }) {
 export { createIslandWorld }
 
 /* ==================================================================
- * 五楼大厅（室内）
+ * 三楼大厅（室内，2026-10-13 米制重建版）
  * ================================================================== */
 
-/** 娃娃屋俯视（默认）和贴近看两种机位；切的时候用同一条补间，手法和岛上推镜一致 */
-const HALL_VIEWS = {
-  dollhouse: {
-    position: [6, 124, 138],
-    target: [0, 4, 2],
-    minDistance: 70,
-    maxDistance: 330,
-    minPolarAngle: 0.42,
-    maxPolarAngle: 1.3,
-  },
-  inside: {
-    position: [26, 12, 25],
-    target: [-8, 5, -12],
-    minDistance: 18,
-    maxDistance: 130,
-    minPolarAngle: 0.7,
-    maxPolarAngle: 1.62,
-  },
-}
-
+/**
+ * 机位数据在 hallLayout.js 的 HALL_VIEWS（娃娃屋俯视 / 贴近 / 第一视角，各带 fov/near/far）。
+ * 第一视角（walk）的接入在后续阶段挂进这个 world（见 walkControls.js）。
+ */
 function createHallWorld(renderer, materials, { onHotspotSelect }) {
-  const lighting = createLighting({ shadowExtent: 90 })
+  // 米制尺度：阴影参数跟随（shadowExtent 28 只有大厅这么大；normalBias 必须降到 0.03）
+  const lighting = createLighting({ shadowExtent: 28, shadowFar: 220, normalBias: 0.03, sunScale: 0.75 })
   const scene = createSceneShell(lighting, { fogNear: 300, fogFar: 720 })
 
-  const { group, robot, walls } = buildHall(materials)
+  const { group, robot, walls, ceiling, outer, colliders, ramps } = buildHall(materials)
   scene.add(group)
+  scene.add(ceiling)
+  scene.add(outer)
+  ceiling.visible = false // 吊顶只在第一视角显示；俯视总览要能看进屋里
+  outer.visible = false // 窗外背景板同理：俯视时它挡在相机和屋子中间
 
-  const camera = new THREE.PerspectiveCamera(36, 1, 0.5, 1600)
+  const camera = new THREE.PerspectiveCamera(
+    HALL_VIEWS.dollhouse.fov,
+    1,
+    HALL_VIEWS.dollhouse.near,
+    HALL_VIEWS.dollhouse.far,
+  )
   camera.position.set(...HALL_VIEWS.dollhouse.position)
 
   const controls = new OrbitControls(camera, renderer.domElement)
@@ -179,6 +174,8 @@ function createHallWorld(renderer, materials, { onHotspotSelect }) {
     container: renderer.domElement.parentElement,
     hotspots: HALL_HOTSPOTS,
     onSelect: onHotspotSelect,
+    dotRadius: 0.11, // 米制：光点半径 11cm（旧版 1.7 在新尺度下是 3.4m 的大橙球）
+    pickRadius: 0.7, // 第一视角准星拾取用的不可见代理球
   })
   scene.add(hotspots.group)
 
@@ -186,17 +183,26 @@ function createHallWorld(renderer, materials, { onHotspotSelect }) {
   let height = 1
   let tween = null
   let viewMode = 'dollhouse'
+  let wallsLocked = false // 第一视角模式四面临墙全回来（娃娃屋的藏墙要停用）
+  const lookAt = new THREE.Vector3()
 
   const gotoView = (mode) => {
     const view = HALL_VIEWS[mode]
-    if (!view) return
+    if (!view || !view.position) return
     viewMode = mode
+    outer.visible = mode !== 'dollhouse'
     applyViewLimits(controls, view)
+    // near/far 直接切（看不出来），fov 走补间（看得出来，硬切会跳）
+    camera.near = view.near ?? camera.near
+    camera.far = view.far ?? camera.far
+    camera.updateProjectionMatrix()
     tween = {
       fromPosition: camera.position.clone(),
       toPosition: new THREE.Vector3(...view.position),
       fromTarget: controls.target.clone(),
       toTarget: new THREE.Vector3(...view.target),
+      fromFov: camera.fov,
+      toFov: view.fov ?? camera.fov,
       t: 0,
     }
   }
@@ -206,6 +212,8 @@ function createHallWorld(renderer, materials, { onHotspotSelect }) {
     camera,
     controls,
     hotspots,
+    colliders,
+    ramps,
     get viewMode() {
       return viewMode
     },
@@ -215,17 +223,31 @@ function createHallWorld(renderer, materials, { onHotspotSelect }) {
     },
     update(elapsed, dt) {
       driveRobot(robot, elapsed)
-      updateWalls(walls, camera.position)
+      updateWalls(walls, camera.position, wallsLocked)
       // 机器人会跑，标注点得跟着它走
-      hotspots.updateAnchor('robot', [robot.position.x, robot.position.y + 10, robot.position.z])
+      hotspots.updateAnchor('robot', [
+        robot.position.x,
+        robot.position.y + HOTSPOT_ANCHORS.robotYOffset,
+        robot.position.z,
+      ])
 
       if (tween) {
         tween.t = Math.min(1, tween.t + dt / 0.9)
         const k = easeInOut(tween.t)
         camera.position.lerpVectors(tween.fromPosition, tween.toPosition, k)
-        controls.target.lerpVectors(tween.fromTarget, tween.toTarget, k)
-        controls.update(0)
-        if (tween.t >= 1) tween = null
+        // ⚠️ 补间期间**不能调 controls.update()**：它不检查 enabled，
+        // 会拿新机位的 min/maxDistance 去夹正在飞的相机（旧版带着这个瑕疵）。
+        // 用 camera.lookAt 定姿态；补间结束时再把 target 交还给 controls。
+        lookAt.lerpVectors(tween.fromTarget, tween.toTarget, k)
+        camera.lookAt(lookAt)
+        if (tween.fromFov !== tween.toFov) {
+          camera.fov = THREE.MathUtils.lerp(tween.fromFov, tween.toFov, k)
+          camera.updateProjectionMatrix()
+        }
+        if (tween.t >= 1) {
+          controls.target.copy(tween.toTarget)
+          tween = null
+        }
       } else {
         controls.update(dt)
       }
@@ -241,6 +263,18 @@ function createHallWorld(renderer, materials, { onHotspotSelect }) {
     },
     setHotspotsVisible(visible) {
       hotspots.setVisible(visible)
+    },
+    /** 吊顶显隐（第一视角显示；俯瞰/贴近不显示，不然看进不去） */
+    setCeilingVisible(visible) {
+      ceiling.visible = visible
+    },
+    /** 外景组（天窗玻璃 + 窗外背景板）显隐：俯视总览时藏 */
+    setOuterVisible(visible) {
+      outer.visible = visible
+    },
+    /** 娃娃屋藏墙的开关：第一视角下必须锁定四面临墙 */
+    setWallsLocked(locked) {
+      wallsLocked = locked
     },
     applyScenePhase(t) {
       scene.background.copy(new THREE.Color(DAY_NIGHT.page[0])).lerp(new THREE.Color(DAY_NIGHT.page[1]), t)
@@ -263,5 +297,5 @@ function applyViewLimits(controls, view) {
 
 export { createHallWorld }
 
-/** 大厅的尺寸，界面文案和相机要用 */
+/** 大厅尺寸（米制）：界面文案和相机要用 */
 export { HALL }

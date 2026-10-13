@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { HOTSPOT_ANCHORS } from './hallLayout.js'
 
 /**
  * 热点标注。
@@ -17,7 +18,7 @@ export const ISLAND_HOTSPOTS = [
     id: 'entrance',
     label: '主入口',
     title: '主入口 · 进大厅',
-    body: '五层挑空中庭的入口，正对广场中轴。点开就走进去。',
+    body: '挑空中庭的入口，正对广场中轴。点开就走进去。',
     position: [0, 15, -12],
     enter: true, // 带这个标记的会被点成"走进大厅"
   },
@@ -58,35 +59,42 @@ export const ISLAND_HOTSPOTS = [
   },
 ]
 
+/** 三楼大厅的热点：坐标全部来自 hallLayout（米制），改布局这里自动跟着走 */
 export const HALL_HOTSPOTS = [
   {
     id: 'robot',
     label: '导览机器人',
     title: '导览机器人',
-    body: '沿中庭绕圈的导览车，会停下来答问路和借还规则。',
-    position: [6, 10, 4],
+    body: '沿中庭绕圈的导览车（高度是动态锚点，跟着它走）。',
+    position: [10.6, HOTSPOT_ANCHORS.robotYOffset, 8.1],
   },
   {
     id: 'vr',
     label: 'VR 阅读区',
     title: 'VR 阅读区',
-    body: '三张躺椅配头显，落地窗边的一块地垫。',
-    position: [-32, 8, 18],
+    body: '西窗边的地毯上摆着三张躺椅配头显，幕布放着馆藏影片。',
+    position: HOTSPOT_ANCHORS.vr,
   },
   {
     id: 'atrium',
     label: '中庭挑空',
-    title: '中庭挑空',
-    body: '五层挑空，栏杆围一圈，站在边上能看到底下几层。',
-    // 挂在挑空边上而不是正中，不然"贴近"视角一进门就顶在脸上
-    position: [14, 6, 0],
+    title: '中庭挑空 · 层叠看台',
+    body: '三层挑空，环廊一圈黑栏杆，廊边垂着绿植；看台一级级升上去，顶上安着那件根雕。',
+    position: HOTSPOT_ANCHORS.atrium,
   },
   {
     id: 'desk',
     label: '借还服务台',
     title: '借还服务台',
-    body: '入口东侧的 L 形台面，人工 + 自助借还机。',
-    position: [22, 8, 16],
+    body: '入口东侧的木面台子，人工 + 自助借还机。',
+    position: HOTSPOT_ANCHORS.desk,
+  },
+  {
+    id: 'exhibit',
+    label: '展览区',
+    title: '展览区 · 展墙',
+    body: '北墙这段是红砖展墙，挂着三幅条幅，轨道灯打在上面。',
+    position: HOTSPOT_ANCHORS.exhibit,
   },
 ]
 
@@ -94,18 +102,23 @@ export const HALL_HOTSPOTS = [
  * 建热点的 3D 部分（光点 + 一小段引线），并管理 HTML 标签。
  * @returns {{ group, labelLayer, update, dispose, setVisible }}
  */
-export function createHotspots({ container, hotspots, onSelect }) {
+export function createHotspots({ container, hotspots, onSelect, dotRadius = 1.7, pickRadius = 0 }) {
   const group = new THREE.Group()
 
-  const dotGeometry = new THREE.SphereGeometry(1.7, 10, 8)
+  const dotGeometry = new THREE.SphereGeometry(dotRadius, 10, 8)
   const dotMaterial = new THREE.MeshBasicMaterial({ color: 0xff8a1f })
-  const haloGeometry = new THREE.SphereGeometry(3.4, 10, 8)
+  const haloGeometry = new THREE.SphereGeometry(dotRadius * 2, 10, 8)
   const haloMaterial = new THREE.MeshBasicMaterial({
     color: 0xff8a1f,
     transparent: true,
     opacity: 0.22,
     depthWrite: false,
   })
+
+  // 第一视角的拾取代理球：不可见，但 Raycaster 照样命中（r186 不检查 visible）。
+  // 半径比光点大（0.7m 左右），走近了才好点。
+  const pickGeometry = pickRadius > 0 ? new THREE.SphereGeometry(pickRadius, 8, 6) : null
+  const pickMaterial = pickGeometry ? new THREE.MeshBasicMaterial() : null
 
   // 标签层：盖在 canvas 之上，但默认不吃鼠标事件，只有标签本身可点
   const labelLayer = document.createElement('div')
@@ -123,6 +136,15 @@ export function createHotspots({ container, hotspots, onSelect }) {
     halo.position.copy(anchor)
     group.add(halo)
 
+    let pick = null
+    if (pickGeometry) {
+      pick = new THREE.Mesh(pickGeometry, pickMaterial)
+      pick.position.copy(anchor)
+      pick.visible = false
+      pick.userData.hotspotId = config.id
+      group.add(pick)
+    }
+
     const label = document.createElement('button')
     label.type = 'button'
     label.className = config.enter ? 'hotspot hotspot--enter' : 'hotspot'
@@ -133,11 +155,10 @@ export function createHotspots({ container, hotspots, onSelect }) {
     })
     labelLayer.appendChild(label)
 
-    return { config, anchor, dot, halo, label, visible: true }
+    return { config, anchor, dot, halo, pick, label, visible: true }
   })
 
   const projected = new THREE.Vector3()
-  const BASE_RADIUS = 1.7 // dotGeometry 的半径
   const TARGET_APPARENT = 0.0118 // 期望的"角大小"（世界尺寸 / 距离），约等于屏幕上恒定的一小点
 
   return {
@@ -151,6 +172,7 @@ export function createHotspots({ container, hotspots, onSelect }) {
       entry.anchor.set(position[0], position[1], position[2])
       entry.dot.position.copy(entry.anchor)
       entry.halo.position.copy(entry.anchor)
+      entry.pick?.position.copy(entry.anchor)
     },
     /** 每帧调一次：把 3D 锚点投影成屏幕坐标，写进标签的 transform */
     update(camera, width, height) {
@@ -158,7 +180,7 @@ export function createHotspots({ container, hotspots, onSelect }) {
         // 光点按距离缩放，屏幕上的大小才恒定 —— 不然镜头一靠近，
         // 光点就变成一个糊在脸上的大橙球（室内"贴近"视角上真踩过）
         const distance = camera.position.distanceTo(entry.anchor)
-        const markerScale = THREE.MathUtils.clamp((distance * TARGET_APPARENT) / BASE_RADIUS, 0.28, 8)
+        const markerScale = THREE.MathUtils.clamp((distance * TARGET_APPARENT) / dotRadius, 0.28, 8)
         entry.dot.scale.setScalar(markerScale)
         entry.halo.scale.setScalar(markerScale)
 
@@ -183,11 +205,21 @@ export function createHotspots({ container, hotspots, onSelect }) {
       labelLayer.style.display = next ? '' : 'none'
       group.visible = next
     },
+    /** 只切 HTML 标签层，3D 光点不动 —— 第一视角模式用（浮空按钮会压住准星） */
+    setLabelsVisible(next) {
+      labelLayer.style.display = next ? '' : 'none'
+    },
+    /** 按 id 找热点配置（第一视角的射线拾取用） */
+    configById(id) {
+      return entries.find((e) => e.config.id === id)?.config ?? null
+    },
     dispose() {
       dotGeometry.dispose()
       dotMaterial.dispose()
       haloGeometry.dispose()
       haloMaterial.dispose()
+      pickGeometry?.dispose()
+      pickMaterial?.dispose()
       labelLayer.remove()
     },
   }

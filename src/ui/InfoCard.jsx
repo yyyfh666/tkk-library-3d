@@ -14,7 +14,7 @@ export default function InfoCard({ hotspot, onClose, onEnterHall }) {
       <p className="info-card__body">{hotspot.body}</p>
       {hotspot.enter && (
         <button className="info-card__cta" type="button" onClick={onEnterHall}>
-          进入五楼大厅
+          进入三楼大厅
         </button>
       )}
     </aside>

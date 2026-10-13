@@ -66,6 +66,7 @@ export const C = {
   hallCeilingBar: '#C9C5BC', // 吊顶格栅压条
   hallTrim: '#8E8A82', // 收边 / 踢脚
   hallLeaf: '#5E8A46', // 垂吊绿植（照片 03/04 的标志性垂蔓）
+  hallCarving: '#553B26', // 中庭看台上的根雕（照片 09 的深色木雕）
   hallSky: '#EDF2F6', // 窗外背景·昼
   hallTrees: '#6E9950', // 窗外背景·树带
 

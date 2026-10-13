@@ -1,0 +1,439 @@
+/**
+ * 三楼大厅：**米制布局的唯一真相**（纯数据 + 纯函数，不 import three）。
+ *
+ * 坐标：x ∈ [-18, 18]，z ∈ [-12, 12]，楼面 0 / 4.2 / 8.4，向下可见 -4.2 的下一层，
+ * 向上到 12.6 的玻璃天窗。中庭挑空 16 × 11 居中。
+ *
+ * 对照 `参考资料/实拍照片` 定的形体（照片 03/04/08）：
+ *  · 每层环廊朝中庭敞开，廊边黑栏杆 + 木扶手，栏杆上垂吊绿植
+ *  · 底层是红砖墩柱（花岗岩柱基/压顶），上面楼层是白色凹槽圆柱，位置一一对应
+ *  · 两侧翼有对称的双跑楼梯（0→1→2 贯通），楼梯井在楼板上开洞
+ *  · 中庭南缘一排层叠看台台阶（0→1.1m），顶上安放根雕展品（照片 09）
+ *  · 外墙每层开大窗（白竖梃），窗外有背景板；北墙一段红砖墙做展墙（照片 07）
+ *
+ * 改布局只改这个文件；hall.js 只负责把下面的数据"砌"成几何。
+ */
+
+export const HALL = {
+  // —— 总体（米）——
+  width: 36,
+  depth: 24,
+  wallThickness: 0.4,
+
+  // —— 楼层 ——
+  levels: 3, // 脚下这层 + 2 层回廊
+  levelHeight: 4.2,
+  floorY: [0, 4.2, 8.4], // 每层楼面
+  slabThickness: 0.35,
+  lowerFloorY: -4.2, // 中庭往下可见的那层
+  ceilingDrop: 0.8, // 吊顶吊在上一块楼板下方多少
+  topY: 12.6, // 天窗标高
+
+  // —— 中庭 ——
+  atriaHalfX: 8,
+  atriaHalfZ: 5.5,
+
+  // —— 构件 ——
+  columnSize: 1.0, // 红砖墩柱截面（米）
+  columnRadius: 0.35, // 白色凹槽圆柱半径
+  railHeight: 1.05, // 栏杆高
+  doorwayHalf: 3, // 南墙入口洞口半宽
+  windowSill: 0.9, // 窗台高（相对楼面）
+  windowHead: 3.2, // 窗顶高
+}
+
+const halfW = HALL.width / 2
+const halfD = HALL.depth / 2
+const { atriaHalfX: AX, atriaHalfZ: AZ } = HALL
+
+/* ------------------------------------------------------------------ *
+ * 矩形分解：base 挖掉若干个 hole，返回互不重叠的小矩形
+ * （楼板/吊顶都是"一大块挖几个洞"，这样生成最省代码也最好核对）
+ * ------------------------------------------------------------------ */
+
+export function cutRects(base, holes = []) {
+  const xs = new Set([base.x0, base.x1])
+  const zs = new Set([base.z0, base.z1])
+  for (const h of holes) {
+    // 只收"真的切到 base"的洞的边界
+    if (h.x1 <= base.x0 || h.x0 >= base.x1 || h.z1 <= base.z0 || h.z0 >= base.z1) continue
+    xs.add(Math.max(base.x0, h.x0))
+    xs.add(Math.min(base.x1, h.x1))
+    zs.add(Math.max(base.z0, h.z0))
+    zs.add(Math.min(base.z1, h.z1))
+  }
+  const X = [...xs].sort((a, b) => a - b)
+  const Z = [...zs].sort((a, b) => a - b)
+  const rects = []
+  for (let i = 0; i < X.length - 1; i++) {
+    for (let j = 0; j < Z.length - 1; j++) {
+      const cx = (X[i] + X[i + 1]) / 2
+      const cz = (Z[j] + Z[j + 1]) / 2
+      const inHole = holes.some((h) => cx > h.x0 && cx < h.x1 && cz > h.z0 && cz < h.z1)
+      if (!inHole) rects.push({ x0: X[i], x1: X[i + 1], z0: Z[j], z1: Z[j + 1] })
+    }
+  }
+  return rects
+}
+
+/* ------------------------------------------------------------------ *
+ * 大块矩形
+ * ------------------------------------------------------------------ */
+
+const RING = { x0: -halfW, x1: halfW, z0: -halfD, z1: halfD }
+const ATRIUM = { x0: -AX, x1: AX, z0: -AZ, z1: AZ }
+/** 吊顶比中庭多让出 1.3m 的沿边开敞带（抬头能看穿到天窗） */
+const ATRIUM_CEIL = { x0: -AX - 1.3, x1: AX + 1.3, z0: -AZ - 1.3, z1: AZ + 1.3 }
+
+/** 楼梯井开洞（两侧对称）：L1 只挖低跑上方，L2 挖整个井 */
+// ⚠️ side=-1 时 x0 > x1，必须 min/max 归一 —— 不然"洞"的判定 (cx > x0 && cx < x1) 永远为假，
+// 西侧楼板就挖不出洞（第一版真踩了：西楼梯从楼板里长出来）。
+const stairHole = (side, x0, x1) => ({
+  x0: Math.min(side * x0, side * x1),
+  x1: Math.max(side * x0, side * x1),
+  z0: -10.9,
+  z1: -2.2,
+})
+const STAIR_HOLES_L1 = [stairHole(1, 12.2, 16.2), stairHole(-1, 12.2, 16.2)]
+const STAIR_HOLES_L2 = [stairHole(1, 8.2, 16.2), stairHole(-1, 8.2, 16.2)]
+
+/* ------------------------------------------------------------------ *
+ * 楼层与吊顶
+ * ------------------------------------------------------------------ */
+
+export const FLOORS = {
+  lower: [{ ...RING }], // -4.2 那层：整块（往下看是它）
+  level0: cutRects(RING, [ATRIUM]),
+  level1: cutRects(RING, [ATRIUM, ...STAIR_HOLES_L1]),
+  level2: cutRects(RING, [ATRIUM, ...STAIR_HOLES_L2]),
+}
+
+/**
+ * 每层吊顶（只覆盖环廊，中庭沿边留开敞带）。
+ * 楼梯井那一段也要给吊顶挖洞，不然楼梯会"顶穿"吊顶从下面看很怪。
+ */
+const stairCeilingHole = (side, x0, x1) => ({
+  x0: Math.min(side * x0, side * x1),
+  x1: Math.max(side * x0, side * x1),
+  z0: -10.9,
+  z1: -2.2,
+})
+export const CEILING_RECTS_BY_LEVEL = [
+  cutRects(RING, [ATRIUM_CEIL, stairCeilingHole(1, 12.2, 16.2), stairCeilingHole(-1, 12.2, 16.2)]),
+  cutRects(RING, [ATRIUM_CEIL, stairCeilingHole(1, 8.2, 12.2), stairCeilingHole(-1, 8.2, 12.2)]),
+  cutRects(RING, [ATRIUM_CEIL]),
+]
+
+/* ------------------------------------------------------------------ *
+ * 柱：底层砖墩 + 上面白圆柱（贯穿三层）
+ * ------------------------------------------------------------------ */
+
+// 注意：中庭南/北边**正中**（0, ±6）不放柱 —— 入口正对着它，会挡死进厅的第一眼。
+const COLUMN_SPOTS = [
+  [-8.5, -6.0],
+  [-8.5, 6.0],
+  [8.5, -6.0],
+  [8.5, 6.0],
+  [-8.5, 0],
+  [8.5, 0],
+]
+
+export const COLUMNS = {
+  /** 底层红砖墩柱（含花岗岩柱基与压顶） */
+  piers: COLUMN_SPOTS.map(([x, z]) => ({
+    x,
+    z,
+    size: HALL.columnSize,
+    y0: 0,
+    y1: HALL.floorY[1],
+  })),
+  /** 1/2 层的白色凹槽圆柱 */
+  round: HALL.floorY.slice(1).map((y) => ({
+    y0: y,
+    y1: y + HALL.levelHeight,
+    spots: COLUMN_SPOTS,
+  })),
+}
+
+/* ------------------------------------------------------------------ *
+ * 楼梯：两侧对称的双跑（0→4.2→8.4），踏步 0.15/0.30
+ * ------------------------------------------------------------------ */
+
+const STEP_RISE = 0.15
+const STEP_RUN = 0.3
+const FLIGHT_STEPS = HALL.levelHeight / STEP_RISE // 28 级
+
+/** side: 1=东翼, -1=西翼 */
+export const STAIRS = [
+  // 低跑：从南往北爬升 0 → 4.2（x 12.4~16.0）
+  { side: 1, from: 0, to: 1, x0: 12.4, x1: 16.0, z0: -10.8, z1: -2.4, dir: -1 },
+  { side: -1, from: 0, to: 1, x0: 12.4, x1: 16.0, z0: -10.8, z1: -2.4, dir: -1 },
+  // 高跑：从北往南爬升 4.2 → 8.4（x 8.4~12.0）
+  { side: 1, from: 1, to: 2, x0: 8.4, x1: 12.0, z0: -10.8, z1: -2.4, dir: 1 },
+  { side: -1, from: 1, to: 2, x0: 8.4, x1: 12.0, z0: -10.8, z1: -2.4, dir: 1 },
+].map((s) => ({
+  ...s,
+  x0: s.side * s.x0, // 西翼镜像：x0 > x1，用 min/max 归一
+  x1: s.side * s.x1,
+  steps: FLIGHT_STEPS,
+  rise: STEP_RISE,
+  run: STEP_RUN,
+  y0: HALL.floorY[s.from],
+  y1: HALL.floorY[s.to],
+  minX: Math.min(s.side * s.x0, s.side * s.x1),
+  maxX: Math.max(s.side * s.x0, s.side * s.x1),
+}))
+
+/** 碰撞用的坡道（每跑一条：沿 z 线性升降） */
+export const RAMPS = STAIRS.map((s) => ({
+  minX: s.minX,
+  maxX: s.maxX,
+  minZ: Math.min(s.z0, s.z1),
+  maxZ: Math.max(s.z0, s.z1),
+  axis: 'z',
+  y0: s.dir > 0 ? s.y0 : s.y1, // 在 z=minZ 处的高度（dir>0 表示往 +z 爬升）
+  y1: s.dir > 0 ? s.y1 : s.y0, // 在 z=maxZ 处的高度
+  snap: STEP_RISE, // 落点吸附到踏步高度，不"悬在斜面上"
+}))
+
+/* ------------------------------------------------------------------ *
+ * 中庭南缘的层叠看台（0 → 1.10m，五级），顶上放根雕
+ * ------------------------------------------------------------------ */
+
+export const TERRACES = Array.from({ length: 5 }, (_, i) => ({
+  x0: -7,
+  x1: 7,
+  z0: AZ - (i + 1) * 1.0, // 从南缘往中庭里退
+  z1: AZ - i * 1.0,
+  top: 0.22 * (i + 1),
+}))
+
+/** 根雕展品的底座平台（放在最高一级看台上：Z 范围 [0.5, 1.5]） */
+export const CARVING = { x: 0, z: 1.0, y: 1.1, scale: 1 }
+
+/* ------------------------------------------------------------------ *
+ * 栏杆：中庭每层一圈 + 楼梯井洞边。
+ * 段格式：[x0, z0, x1, z1, y]（楼面标高 y，往 +y 竖 1.05m）
+ * ------------------------------------------------------------------ */
+
+/**
+ * 中庭四周的栏杆（贴着中庭边）。
+ * 脚下这层（y=0）的南边要给层叠看台留缺口（人从缺口迈上看台），其余是整圈。
+ */
+const atriaRails = (y, southGap = null) => {
+  const x0 = -AX - 0.2
+  const x1 = AX + 0.2
+  const z0 = -AZ - 0.2
+  const z1 = AZ + 0.2
+  const rails = [
+    [x0, z0, x1, z0, y], // 北
+    [x0, z0, x0, z1, y], // 西
+    [x1, z0, x1, z1, y], // 东
+  ]
+  if (southGap) rails.push([x0, z1, southGap[0], z1, y], [southGap[1], z1, x1, z1, y])
+  else rails.push([x0, z1, x1, z1, y]) // 南
+  return rails
+}
+
+// 楼梯井洞边：低跑洞（L1）三边；整井洞（L2）四边留出到达口
+const stairRailsL1 = (side) => [
+  [side * 12.2, -10.9, side * 12.2, -2.2, HALL.floorY[1]],
+  [side * 12.2, -2.2, side * 16.2, -2.2, HALL.floorY[1]],
+  [side * 16.2, -10.9, side * 16.2, -2.2, HALL.floorY[1]],
+]
+const stairRailsL2 = (side) => [
+  [side * 8.2, -10.9, side * 8.2, -2.2, HALL.floorY[2]],
+  [side * 12.2, -2.2, side * 16.2, -2.2, HALL.floorY[2]],
+  [side * 16.2, -10.9, side * 16.2, -2.2, HALL.floorY[2]],
+  [side * 8.2, -10.9, side * 16.2, -10.9, HALL.floorY[2]],
+]
+
+export const RAILINGS = [
+  atriaRails(HALL.floorY[0], [-7, 7]), // 一层南边留给层叠看台的缺口
+  atriaRails(HALL.floorY[1]),
+  atriaRails(HALL.floorY[2]),
+  stairRailsL1(1),
+  stairRailsL1(-1),
+  stairRailsL2(1),
+  stairRailsL2(-1),
+].flat()
+
+/* ------------------------------------------------------------------ *
+ * 书架：2.4m 高 × 2.0m 宽 × 0.6m 深，成对背靠背摆成"书巷"（照片 01/05）
+ * ------------------------------------------------------------------ */
+
+const shelfPair = (level, x, z, ry = 0) => [
+  { level, x, z, ry },
+  { level, x: ry === 0 ? x : x + 0.6, z: ry === 0 ? z + 0.6 : z, ry }, // 背靠背：中心差一个进深
+]
+
+export const SHELVES = [
+  // 北翼中间（两侧楼梯井之间）：两对，横放
+  ...[0, 1].flatMap((i) => shelfPair(0, -3.4 + i * 7, -9.5, 0)),
+  // 东翼南段（楼梯井以南）：两对，竖放；避开机器人巡航路径（x≈10.6）与服务台
+  ...[6.4, 8.9].flatMap((z) => shelfPair(0, 13.7, z, Math.PI / 2)),
+  // 西翼北段（楼梯井以南、中庭以北）：两对
+  ...[0.8, 3.3].flatMap((z) => shelfPair(0, -13.7, z, Math.PI / 2)),
+  // 二层东翼延续一排（照片 03 里廊边就是书架）
+  ...[6.4, 8.9].flatMap((z) => shelfPair(1, 13.7, z, Math.PI / 2)),
+]
+
+/* ------------------------------------------------------------------ *
+ * 家具：阅览长桌（南窗边）、服务台、VR 区
+ * ------------------------------------------------------------------ */
+
+export const TABLES = [
+  { x: -11, z: 9.4 },
+  { x: -5.5, z: 9.4 },
+  { x: 5.5, z: 9.4 },
+  { x: 11, z: 9.4 },
+]
+
+export const COUNTER = { x0: 12.6, x1: 17.6, z0: 2.0, z1: 4.4, h: 1.05 } // 入口东侧的借还服务台
+
+export const VR_AREA = { x: -15, z: 8.6 } // 地毯中心
+
+/* ------------------------------------------------------------------ *
+ * 外墙开窗（南北东西四面，每层一条窗带；南墙中间是入口）
+ * ------------------------------------------------------------------ */
+
+export const WALLS = {
+  // 墙按"哪一侧"描述，逐层生成；openings 里 y 是相对该层楼面的高度
+  sides: [
+    {
+      key: 'north', // z = -12：实墙 + 一段红砖展墙（照片 07）
+      openings: [],
+      brick: { x0: -8, x1: 8, y0: 0, y1: 3.4 },
+    },
+    {
+      key: 'south', // z = +12：中间是入口，两侧开窗
+      openings: [
+        { x0: -15, x1: -4, y0: 0.9, y1: 3.2 },
+        { x0: 4, x1: 15, y0: 0.9, y1: 3.2 },
+      ],
+      door: { x0: -3, x1: 3, y: 3.0 },
+    },
+    {
+      key: 'east',
+      openings: [{ z0: -9, z1: 9, y0: 0.9, y1: 3.2 }],
+    },
+    {
+      key: 'west',
+      openings: [{ z0: -9, z1: 9, y0: 0.9, y1: 3.2 }],
+    },
+  ],
+}
+
+/* ------------------------------------------------------------------ *
+ * 机位 / 出生点 / 热点锚点 / 机器人巡航路径
+ * ------------------------------------------------------------------ */
+
+export const HALL_VIEWS = {
+  dollhouse: {
+    position: [10, 40, 46],
+    target: [0, 4, 0],
+    minDistance: 22,
+    maxDistance: 120,
+    minPolarAngle: 0.42,
+    maxPolarAngle: 1.3,
+    fov: 36,
+    near: 0.5,
+    far: 1600,
+  },
+  inside: {
+    position: [3.5, 1.75, 10.4],
+    target: [-1.5, 2.4, -4],
+    minDistance: 5,
+    maxDistance: 42,
+    minPolarAngle: 0.7,
+    maxPolarAngle: 1.62,
+    fov: 55,
+    near: 0.1,
+    far: 800,
+  },
+  walk: {
+    spawn: [0, 0, 9.6], // 入口内一步
+    yaw: 0, // 面朝 -z（望向中庭）
+    pitch: -0.02,
+    eye: 1.65, // 眼睛高
+    radius: 0.32, // 碰撞半径
+    stepHeight: 0.36, // 能直接迈上的高度
+    headHeight: 1.78,
+    walkSpeed: 2.6,
+    runSpeed: 5.2,
+    fov: 70,
+    near: 0.08,
+    far: 500,
+  },
+}
+
+/** 热点锚点（米制；robot 那条是动态的，这里只给高度补偿） */
+export const HOTSPOT_ANCHORS = {
+  robotYOffset: 1.9,
+  vr: [-15, 1.6, 8.6],
+  atrium: [0, 3.1, 3.2],
+  desk: [13, 1.6, 3.4],
+  exhibit: [0, 2.2, -11.2],
+}
+
+/** 机器人的巡航路径：围着中庭的圆角矩形，采样成折线（按弧长参数化，首尾相接） */
+export function buildRobotPath({ offset = 2.6, cornerRadius = 3.2, samples = 160 } = {}) {
+  const hx = AX + offset // 圆角矩形半宽（到直边的距离）
+  const hz = AZ + offset
+  const r = cornerRadius
+
+  // 一圈顺序：南直边 → 东南弧 → 东直边 → 东北弧 → 北直边 → 西北弧 → 西直边 → 西南弧
+  // 弧的角度是从圆心出发的极角；两端点必须和相邻直边严丝合缝
+  const segs = [
+    { type: 'line', p0: [-hx + r, hz], p1: [hx - r, hz] },
+    { type: 'arc', c: [hx - r, hz - r], a0: Math.PI / 2, a1: 0 },
+    { type: 'line', p0: [hx, hz - r], p1: [hx, -hz + r] },
+    { type: 'arc', c: [hx - r, -hz + r], a0: 0, a1: -Math.PI / 2 },
+    { type: 'line', p0: [hx - r, -hz], p1: [-hx + r, -hz] },
+    { type: 'arc', c: [-hx + r, -hz + r], a0: -Math.PI / 2, a1: -Math.PI },
+    { type: 'line', p0: [-hx, -hz + r], p1: [-hx, hz - r] },
+    { type: 'arc', c: [-hx + r, hz - r], a0: Math.PI, a1: Math.PI / 2 },
+  ]
+  const lengths = segs.map((s) =>
+    s.type === 'line' ? Math.hypot(s.p1[0] - s.p0[0], s.p1[1] - s.p0[1]) : Math.abs(s.a1 - s.a0) * r,
+  )
+  const total = lengths.reduce((a, b) => a + b, 0)
+
+  const points = []
+  for (let i = 0; i <= samples; i++) {
+    let d = (i / samples) * total
+    let idx = 0
+    while (idx < segs.length - 1 && d > lengths[idx]) {
+      d -= lengths[idx]
+      idx++
+    }
+    const s = segs[idx]
+    const k = lengths[idx] > 0 ? d / lengths[idx] : 0
+    if (s.type === 'line') {
+      points.push([s.p0[0] + (s.p1[0] - s.p0[0]) * k, s.p0[1] + (s.p1[1] - s.p0[1]) * k])
+    } else {
+      const a = s.a0 + (s.a1 - s.a0) * k
+      points.push([s.c[0] + Math.cos(a) * r, s.c[1] + Math.sin(a) * r])
+    }
+  }
+  return points
+}
+
+/** 机器人的巡航路径（模块级算好一次） */
+export const ROBOT_PATH = buildRobotPath()
+
+export const HALL_LAYOUT = {
+  FLOORS,
+  CEILING_RECTS_BY_LEVEL,
+  COLUMNS,
+  STAIRS,
+  RAMPS,
+  TERRACES,
+  RAILINGS,
+  SHELVES,
+  TABLES,
+  COUNTER,
+  VR_AREA,
+  WALLS,
+  ROBOT_PATH,
+}

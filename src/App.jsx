@@ -29,6 +29,17 @@ export default function App() {
     worldRef.current = world
     setReady(true)
 
+    // URL 参数（截图回路 / 直达厅内用）：?scene=hall&night=1&view=inside|dollhouse|walk
+    const params = new URLSearchParams(window.location.search)
+    const startInHall = params.get('scene') === 'hall'
+    if (startInHall) {
+      world.setActive('hall')
+      setScene('hall')
+    }
+    if (params.get('night') === '1') setIsNight(true)
+    const view = params.get('view')
+    if (view && startInHall) window.setTimeout(() => world.worlds.hall.gotoView(view), 400)
+
     const onResize = () => world.resize()
     window.addEventListener('resize', onResize)
 
@@ -119,8 +130,8 @@ export default function App() {
         <IntroPanel onEnterHall={enterHall} canEnterHall={canEnterHall} />
       ) : (
         <div className="hall-title">
-          <p className="hall-title__eyebrow">FIFTH FLOOR · READING HALL</p>
-          <h1 className="hall-title__title">五楼大厅</h1>
+          <p className="hall-title__eyebrow">THIRD FLOOR · READING HALL</p>
+          <h1 className="hall-title__title">三楼大厅</h1>
           <p className="hall-title__motto">挑空中庭，书香绕梁。</p>
         </div>
       )}

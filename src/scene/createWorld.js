@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { createMaterials, applyMaterialPhase } from './materials.js'
+import { createMaterials, applyMaterialPhase, attachEnvMap } from './materials.js'
+import { createHallTextures, disposeHallTextures, createRoomEnvTexture } from './textures.js'
 import { createIslandWorld, createHallWorld } from './worlds.js'
 
 /**
@@ -20,7 +21,12 @@ export function createAppWorld({ container, onHotspotSelect }) {
   renderer.toneMapping = THREE.NoToneMapping
   container.appendChild(renderer.domElement)
 
-  const materials = createMaterials()
+  // 程序化贴图（模块级单例，StrictMode 双挂载也只画一次）+ 程序化环境反射
+  const textures = createHallTextures({ maxAnisotropy: renderer.capabilities.getMaxAnisotropy() })
+  const materials = createMaterials({ textures })
+  // ⚠️ 逐材质挂 envMap，绝不设 scene.environment（r186 会用 environmentIntensity 覆盖）
+  attachEnvMap(materials, createRoomEnvTexture(renderer))
+
   const worlds = {
     island: createIslandWorld(renderer, materials, { onHotspotSelect }),
     hall: createHallWorld(renderer, materials, { onHotspotSelect }),
@@ -77,21 +83,28 @@ export function createAppWorld({ container, onHotspotSelect }) {
   }
   frame()
 
-  return {
+  const api = {
     worlds,
     resize,
     /** 切换昼夜：0 = 白天，1 = 夜晚 */
     setPhaseTarget(next) {
       phaseTarget = next
     },
-    /** 切换当前渲染的 world（岛 / 大厅），同时把另一个的控制器关掉，免得两套交互打架 */
+    /**
+     * 切换当前渲染的 world（岛 / 大厅），同时把另一个的控制器关掉，免得两套交互打架。
+     * 优先走 world.setActive(bool) 钩子 —— 大厅切回岛再切回来时，
+     * 不能无脑把 OrbitControls 打开（第一视角模式下会和它抢相机）。
+     */
     setActive(name) {
       if (!worlds[name] || name === activeName) return
       const previous = worlds[activeName]
-      if (previous.controls) previous.controls.enabled = false
+      if (previous.setActive) previous.setActive(false)
+      else if (previous.controls) previous.controls.enabled = false
       activeName = name
       const next = worlds[name]
-      if (next.controls) {
+      if (next.setActive) {
+        next.setActive(true)
+      } else if (next.controls) {
         next.controls.enabled = true
         next.controls.update(0)
       }
@@ -107,9 +120,72 @@ export function createAppWorld({ container, onHotspotSelect }) {
       cancelAnimationFrame(frameId)
       for (const world of Object.values(worlds)) world.dispose?.()
       for (const material of Object.values(materials)) material.dispose()
+      disposeHallTextures() // 贴图是模块级单例，统一在这里收口
       renderer.dispose()
       renderer.forceContextLoss()
       renderer.domElement.remove()
     },
   }
+
+  /* ------------------------------------------------------------------ *
+   * 测试钩子（仅 DEV）
+   * 截图回路用 URL 参数 + window.__stage 直接摆机位 / 采样像素，
+   * **不依赖任何按钮文案**，UI 改字不会把验证回路弄断。
+   * （preview-shot.mjs 是靠点按钮的回归基线，那条不许动。）
+   * ------------------------------------------------------------------ */
+  if (import.meta.env.DEV) {
+    window.__stage = {
+      app: api,
+      info: () => ({
+        calls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+        geometries: renderer.info.memory.geometries,
+        textures: renderer.info.memory.textures,
+      }),
+      /** 给当前 world 直接摆机位（截图用；不经过补间） */
+      setCamera: ({ pos, target, fov } = {}) => {
+        const world = worlds[activeName]
+        if (pos) world.camera.position.set(...pos)
+        if (target) {
+          world.controls?.target.set(...target)
+          world.camera.lookAt(new THREE.Vector3(...target))
+        }
+        if (fov) {
+          world.camera.fov = fov
+          world.camera.updateProjectionMatrix()
+        }
+        world.controls?.update(0)
+      },
+      /**
+       * 采样当前画面若干点的像素（0-255），用来**用数字守住曝光**：
+       * 白天断言 max < 0.98*255（过曝）、min > 0.06*255（死黑）。
+       */
+      probe: (cols = 8, rows = 5) => {
+        const world = worlds[activeName]
+        renderer.render(world.scene, world.camera)
+        const gl = renderer.getContext()
+        const w = renderer.domElement.width
+        const h = renderer.domElement.height
+        const buf = new Uint8Array(4)
+        const out = []
+        for (let j = 0; j < rows; j++) {
+          for (let i = 0; i < cols; i++) {
+            gl.readPixels(
+              Math.floor(((i + 0.5) * w) / cols),
+              Math.floor(((j + 0.5) * h) / rows),
+              1,
+              1,
+              gl.RGBA,
+              gl.UNSIGNED_BYTE,
+              buf,
+            )
+            out.push([buf[0], buf[1], buf[2]])
+          }
+        }
+        return out
+      },
+    }
+  }
+
+  return api
 }

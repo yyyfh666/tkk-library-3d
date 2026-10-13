@@ -484,30 +484,31 @@ function drawBackdrop(ctx, w, h) {
   const rnd = seededRand(20261025)
   const sky = hexToRgb(C.hallSky)
   const g = ctx.createLinearGradient(0, 0, 0, h)
-  g.addColorStop(0, rgbStr(shade(sky, 1.04)))
-  g.addColorStop(0.62, rgbStr(sky))
-  g.addColorStop(1, rgbStr(shade(sky, 0.94)))
+  g.addColorStop(0, rgbStr(shade(sky, 1.05)))
+  g.addColorStop(0.55, rgbStr(sky))
+  g.addColorStop(0.8, rgbStr(mixRgb(sky, hexToRgb('#DCE8DC'), 0.5))) // 地平线一点点绿雾
+  g.addColorStop(1, rgbStr(shade(sky, 0.95)))
   ctx.fillStyle = g
   ctx.fillRect(0, 0, w, h)
 
   const trees = hexToRgb(C.hallTrees)
-  // 远树带（浅）
-  ctx.fillStyle = rgbStr(shade(trees, 1.25), 0.85)
-  for (let x = 0; x < w; x += 26) {
-    const r = 26 + rnd() * 26
+  // 远树带（浅、带雾）
+  ctx.fillStyle = rgbStr(mixRgb(trees, sky, 0.45), 0.7)
+  for (let x = 0; x < w; x += 30) {
+    const r = 20 + rnd() * 22
     ctx.beginPath()
-    ctx.arc(x + rnd() * 16, h * 0.62 + (rnd() - 0.5) * 10, r, Math.PI, 0)
+    ctx.arc(x + rnd() * 18, h * 0.72 + (rnd() - 0.5) * 8, r, Math.PI, 0)
     ctx.fill()
   }
-  // 近树带（深）
-  ctx.fillStyle = rgbStr(trees, 0.95)
-  for (let x = 0; x < w; x += 34) {
-    const r = 34 + rnd() * 34
+  // 近树带（稍深，但也留透气）
+  ctx.fillStyle = rgbStr(mixRgb(trees, sky, 0.12), 0.88)
+  for (let x = 0; x < w; x += 40) {
+    const r = 24 + rnd() * 26
     ctx.beginPath()
-    ctx.arc(x + rnd() * 20, h * 0.78 + (rnd() - 0.5) * 12, r, Math.PI, 0)
+    ctx.arc(x + rnd() * 24, h * 0.86 + (rnd() - 0.5) * 8, r, Math.PI, 0)
     ctx.fill()
   }
-  ctx.fillRect(0, h * 0.8, w, h * 0.2)
+  ctx.fillRect(0, h * 0.88, w, h * 0.12)
 }
 
 /** 白色凹槽柱的竖向凹槽（bump）：一圈约 24 道槽 */
