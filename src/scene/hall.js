@@ -11,7 +11,7 @@ import {
   TERRACES,
   CARVING,
   RAILINGS,
-  SHELVES,
+  SHELF_UNITS,
   TABLES,
   COUNTER,
   VR_AREA,
@@ -556,19 +556,32 @@ export function buildHall(materials) {
     const len = Math.hypot(x1 - x0, z1 - z0)
     const count = Math.floor(len / 1.4)
     const alongX = Math.abs(x1 - x0) > Math.abs(z1 - z0)
+    // 花槽放在**栏杆里侧**（站在廊上），垂蔓伸到**栏杆外/楼板边之外**挂下去 ——
+    // 照片里就是"槽在廊上、藤垂进中庭"；全都摆在栏杆线上会跟钢条穿在一起。
+    const mx = (x0 + x1) / 2
+    const mz = (z0 + z1) / 2
+    const ml = Math.hypot(mx, mz) || 1
+    const inX = (mx / ml) * 0.28 // 朝廊内（远离中庭）
+    const inZ = (mz / ml) * 0.28
+    const outX = -(mx / ml) * 0.3 // 朝中庭
+    const outZ = -(mz / ml) * 0.3
     for (let i = 0; i < count; i++) {
       const k = (i + 0.5) / count
       const px = x0 + (x1 - x0) * k
       const pz = z0 + (z1 - z0) * k
-      // 花槽
+      // 花槽（在栏杆里侧的廊面上）
       const box = new THREE.BoxGeometry(alongX ? 1.0 : 0.24, 0.22, alongX ? 0.24 : 1.0)
-      box.translate(px, y + 0.1, pz)
+      box.translate(px + inX, y + 0.1, pz + inZ)
       addGeo('hallGranite', box)
-      // 垂蔓片（两面可见）
+      // 垂蔓片（两面可见，挂在栏杆外侧、楼板边缘外）
       for (let j = 0; j < 2; j++) {
         const plane = new THREE.PlaneGeometry(1.1, 1.15 + j * 0.3)
         if (!alongX) plane.rotateY(Math.PI / 2)
-        plane.translate(px + (alongX ? 0 : (j - 0.5) * 0.1), y - 0.5 - j * 0.25, pz + (alongX ? (j - 0.5) * 0.1 : 0))
+        plane.translate(
+          px + outX + (alongX ? 0 : (j - 0.5) * 0.1),
+          y - 0.45 - j * 0.3,
+          pz + outZ + (alongX ? (j - 0.5) * 0.1 : 0),
+        )
         leafGeos.push(plane)
       }
     }
@@ -589,8 +602,9 @@ export function buildHall(materials) {
   const shelfH = 2.4
   const boardYs = [0.28, 0.73, 1.18, 1.63, 2.08]
   const bookItems = []
+  const bookMeta = [] // 每本书的实例元数据：世界包围盒 + 书架号 + 层数（拾取/找书用）
 
-  for (const sh of SHELVES) {
+  for (const sh of SHELF_UNITS) {
     const y0 = HALL.floorY[sh.level]
     const ry = sh.ry
     const cos = Math.cos(ry)
@@ -629,19 +643,32 @@ export function buildHall(materials) {
     )
 
     // —— 书：沿柜宽排，颜色/厚度/高矮随机（固定种子）——
-    for (const by of boardYs) {
+    for (let bi = 0; bi < boardYs.length; bi++) {
+      const by = boardYs[bi]
       let u = -shelfW / 2 + 0.1
       while (u < shelfW / 2 - 0.12) {
         const bw = range(0.028, 0.052) // 书厚 2.8~5.2cm（真实值）
         const bh = range(0.19, 0.28) // 书高 19~28cm
         const [wx, wz] = toWorld(u + bw / 2, 0)
+        const cy = y0 + by + bh / 2 + 0.015
         const m = new THREE.Matrix4()
         m.compose(
-          new THREE.Vector3(wx, y0 + by + bh / 2 + 0.015, wz),
+          new THREE.Vector3(wx, cy, wz),
           new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), ry),
           new THREE.Vector3(bw, bh, 0.17),
         )
-        bookItems.push({ m, c: new THREE.Color(BOOK_COLORS[Math.floor(rand() * BOOK_COLORS.length)]) })
+        const color = new THREE.Color(BOOK_COLORS[Math.floor(rand() * BOOK_COLORS.length)])
+        bookItems.push({ m, c: color, shelfId: sh.id, board: bi + 1 })
+        // 轴对齐包围盒：ry 只可能是 0 或 ±90°，宽/深对调即可（拾取用，别指望它精确到书脊弧度）
+        const hx = ry === 0 ? bw / 2 : 0.085
+        const hz = ry === 0 ? 0.085 : bw / 2
+        bookMeta.push({
+          min: [wx - hx, cy - bh / 2, wz - hz],
+          max: [wx + hx, cy + bh / 2, wz + hz],
+          shelfId: sh.id,
+          board: bi + 1,
+          index: bookItems.length - 1,
+        })
         u += bw + 0.006
         if (bookItems.length >= 5200) break
       }
@@ -729,6 +756,7 @@ export function buildHall(materials) {
     const screen = new THREE.BoxGeometry(0.1, 2.4, 4.0)
     screen.translate(-halfW + 0.5, 2.0, VR_AREA.z + 1.2)
     addGeo('screen', screen)
+    addColliderBox(-halfW + 0.5, 2.0, VR_AREA.z + 1.2, 0.4, 2.4, 4.0, 'solid') // 幕布也要挡人
   }
 
   // 绿植（角落）
@@ -755,7 +783,7 @@ export function buildHall(materials) {
 
   // 展签 / 条幅（北墙展墙上挂三幅）
   for (let i = 0; i < 3; i++) {
-    addBox('hallExhibit', { w: 1.3, h: 2.0, d: 0.06, x: -4 + i * 4, y: 1.7, z: -halfD + 0.2, tile: 1.2, collide: false })
+    addBox('hallExhibit', { w: 1.3, h: 2.0, d: 0.06, x: -4 + i * 4, y: 1.7, z: -halfD + 0.2, tile: 1.2, collide: true, tag: 'exhibit' })
   }
 
   /* ================================================================
@@ -839,7 +867,7 @@ export function buildHall(materials) {
   const robot = buildRobot(materials)
   group.add(robot)
 
-  return { group, robot, walls, ceiling, outer, colliders, ramps }
+  return { group, robot, walls, ceiling, outer, colliders, ramps, books: { mesh: books, items: bookMeta } }
 }
 
 /* ------------------------------------------------------------------ *
@@ -881,37 +909,7 @@ function buildRobot(materials) {
  * 巡航 / 藏墙
  * ------------------------------------------------------------------ */
 
-/** 机器人路径的段长表：模块级算一次（每帧重算纯属浪费） */
-const ROBOT_SEG = (() => {
-  const segLen = []
-  let total = 0
-  for (let i = 0; i < ROBOT_PATH.length - 1; i++) {
-    const d = Math.hypot(ROBOT_PATH[i + 1][0] - ROBOT_PATH[i][0], ROBOT_PATH[i + 1][1] - ROBOT_PATH[i][1])
-    segLen.push(d)
-    total += d
-  }
-  return { segLen, total }
-})()
-
-/** 沿 hallLayout 的圆角矩形路径巡游（弧长参数化，速度 ~1.1 m/s） */
-export function driveRobot(robot, elapsed, speed = 1.1) {
-  const path = ROBOT_PATH
-  const { segLen, total } = ROBOT_SEG
-  const n = path.length - 1
-  let d = (elapsed * speed) % total
-  let i = 0
-  while (i < n && d > segLen[i]) {
-    d -= segLen[i]
-    i++
-  }
-  const a = path[Math.min(i, n - 1)]
-  const b = path[Math.min(i + 1, n)]
-  const k = segLen[i] > 0 ? d / segLen[i] : 0
-  const x = a[0] + (b[0] - a[0]) * k
-  const z = a[1] + (b[1] - a[1]) * k
-  robot.position.set(x, Math.sin(elapsed * 2.2) * 0.03, z)
-  robot.rotation.y = Math.atan2(b[0] - a[0], b[1] - a[1])
-}
+/** 机器人的运动改由 robotAgent.js 接管（巡航环线 = hallLayout 的 ROBOT_PATH），这里只剩藏墙 */
 
 /**
  * 娃娃屋的看家本领：相机在哪一侧，就藏掉那一侧的墙。

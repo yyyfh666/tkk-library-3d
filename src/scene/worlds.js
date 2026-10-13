@@ -5,9 +5,17 @@ import { buildIsland, buildFloatingRocks, createContactShadow, animateFloatingRo
 import { buildLibrary } from './library.js'
 import { buildProps } from './props.js'
 import { createHotspots, ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './hotspots.js'
-import { buildHall, driveRobot, updateWalls } from './hall.js'
-import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS } from './hallLayout.js'
+import { buildHall, updateWalls } from './hall.js'
+import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS, ROBOT_PATH, HOLOGRAM, ACCESS } from './hallLayout.js'
 import { createWalkControls } from './walkControls.js'
+import { buildNavGrid, planPath } from './nav.js'
+import { resolveXZ } from './collision.js'
+import { createRobotAgent } from './robotAgent.js'
+import { createShelfScreens, pickBook, createHighlightMarker } from './shelfInteraction.js'
+import { createHologram } from './hologram.js'
+import { createBurst } from './particles.js'
+import { useHallStore } from '../state/store.js'
+import { getBookByInstanceMeta } from '../state/mockBooks.js'
 import { DAY_NIGHT, HALL_LIGHT } from './palette.js'
 
 /** 相机初始机位：略高的俯视，配长焦，才有"微缩模型"那种被压扁的玩具感 */
@@ -146,12 +154,22 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   const lighting = createLighting({ shadowExtent: 28, shadowFar: 220, normalBias: 0.03, sunScale: 0.9 })
   const scene = createSceneShell(lighting, { fogNear: 300, fogFar: 720 })
 
-  const { group, robot, walls, ceiling, outer, colliders, ramps } = buildHall(materials)
+  const { group, robot, walls, ceiling, outer, colliders, ramps, books } = buildHall(materials)
   scene.add(group)
   scene.add(ceiling)
   scene.add(outer)
   ceiling.visible = false // 吊顶只在第一视角显示；俯视总览要能看进屋里
   outer.visible = false // 窗外背景板同理：俯视时它挡在相机和屋子中间
+
+  // 全息展台也要挡人。几何是 hologram.js 现砌的，位置读布局层的 HOLOGRAM —— 这里补碰撞盒
+  // （必须赶在导航栅格按 colliders 建之前）。盒高取 0.55 而不是基座真实的 0.26：
+  // 步高是 0.36，矮于它的盒子会被当成"可以迈上去的路缘"，人就穿进全息面板里了。
+  colliders.push({
+    min: [HOLOGRAM.x - HOLOGRAM.radius, 0, HOLOGRAM.z - HOLOGRAM.radius],
+    max: [HOLOGRAM.x + HOLOGRAM.radius, 0.55, HOLOGRAM.z + HOLOGRAM.radius],
+    tag: 'hologram',
+    groundOnly: false,
+  })
 
   const camera = new THREE.PerspectiveCamera(
     HALL_VIEWS.dollhouse.fov,
@@ -194,6 +212,18 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     return light
   })
 
+  // ?debug=colliders：把全部碰撞盒画成线框（红=挡人的实体，黄=只当地面的看台类）。
+  // 排查"能穿过去"这类问题时，开着它走一圈就能看出哪个物件忘了登记碰撞。
+  let colliderDebug = null
+  if (new URLSearchParams(window.location.search).has('debug')) {
+    colliderDebug = new THREE.Group()
+    for (const c of colliders) {
+      const box = new THREE.Box3(new THREE.Vector3(...c.min), new THREE.Vector3(...c.max))
+      colliderDebug.add(new THREE.Box3Helper(box, c.groundOnly ? 0xffc84a : 0xff4a6a))
+    }
+    scene.add(colliderDebug)
+  }
+
   let width = 1
   let height = 1
   let tween = null
@@ -226,6 +256,121 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     const hit = raycaster.intersectObjects(pickList, false)[0]
     return hit ? hotspots.configById(hit.object.userData.hotspotId) : null
   }
+
+  /* ================================================================
+   * 场景二 / 三：导览机器人（A* 寻路）、全息投影、书架信息屏
+   *
+   * 三块都经由 state/store.js 跟 React 通信：引擎只管推进与回调，
+   * UI 只管订阅 —— 每帧零 React 开销，命令行命令用 nonce 一次性消费。
+   * ================================================================ */
+
+  // 导航栅格只建一次（~5100 格 × 150 个障碍，一次要几毫秒）；
+  // A* 只在收到命令时跑一次，帧循环里只剩路点跟随，所以帧率完全不受影响。
+  const navGrid = buildNavGrid({
+    bounds: ACCESS.bounds,
+    cell: 0.4,
+    colliders,
+    clearance: 0.45,
+    blockedRects: ACCESS.voidRects,
+  })
+
+  const screens = createShelfScreens()
+  scene.add(screens.group)
+
+  const marker = createHighlightMarker()
+  scene.add(marker.object3d)
+
+  const hologram = createHologram({ materials, position: [HOLOGRAM.x, 0, HOLOGRAM.z] })
+  scene.add(hologram.group)
+
+  const burst = createBurst()
+  scene.add(burst.object3d)
+
+  let pinnedBook = null // 找书命中的那本（书架屏与高亮框的"钉子"）
+  let pinnedItem = null // 它在 hall.js 里的实例元数据（带包围盒）
+  let hoverShelfId = null // 鼠标/准星当前指着哪架书架
+  let holoNear = false
+
+  const agent = createRobotAgent({
+    object3d: robot,
+    grid: navGrid,
+    colliders,
+    resolveXZ,
+    cruisePath: ROBOT_PATH,
+    onStateChange: (patch) => useHallStore.getState().setRobotState(patch),
+    onArrive: (info) => {
+      const store = useHallStore.getState()
+      const kind = info.payload?.kind
+      if (kind === 'checkin') {
+        burst.burst([robot.position.x, 0.2, robot.position.z])
+        store.showCheckin()
+        return
+      }
+      if (kind === 'book') {
+        const book = info.payload.book
+        pinnedBook = book
+        pinnedItem = books.items.find((it) => it.shelfId === book.shelfId && it.board === book.board) ?? null
+        store.setSelectedBook(book)
+        screens.show(book.shelfId, book)
+        if (pinnedItem) marker.show(pinnedItem)
+      }
+    },
+  })
+
+  // React → 引擎：store 里塞一条带 nonce 的命令，这里消费掉（同一命令按两次也会重发）
+  let lastCommandNonce = 0
+  const unsubscribeStore = useHallStore.subscribe((state) => {
+    const cmd = state.robotCommand
+    if (!cmd || cmd.nonce === lastCommandNonce) return
+    lastCommandNonce = cmd.nonce
+    agent.command(cmd)
+  })
+
+  /**
+   * 拾取到一本书时，同时更新三处：书架屏（3D）、高亮框（3D）、React 里的准星提示。
+   * 移开时退回 pinnedBook —— 找书找到的那本不该被鼠标一晃就顶掉。
+   */
+  const applyHover = (item) => {
+    const store = useHallStore.getState()
+    if (!item) {
+      if (hoverShelfId) {
+        screens.show(hoverShelfId, pinnedBook?.shelfId === hoverShelfId ? pinnedBook : null)
+        hoverShelfId = null
+      }
+      store.setHoveredBook(null)
+      if (pinnedItem) marker.show(pinnedItem)
+      else marker.hide()
+      return
+    }
+    const book = getBookByInstanceMeta(item.shelfId, item.board)
+    store.setHoveredBook(book)
+    // 指到的那层没有编目条目时（演示书目每架只覆盖两三层），也要报出层数 ——
+    // 直接退回默认页的话，屏幕一动不动的看着像坏了
+    screens.show(item.shelfId, book, book ? null : item.board)
+    marker.show(item)
+    hoverShelfId = item.shelfId
+  }
+
+  /** 射线 → 最近的一本书（自己做射线-AABB，不用 InstancedMesh.raycast：三千个实例逐面求交会卡） */
+  const pickBookAt = (ray, maxDist) =>
+    pickBook(books.items, [ray.origin.x, ray.origin.y, ray.origin.z], [ray.direction.x, ray.direction.y, ray.direction.z], maxDist)
+      ?.item ?? null
+
+  // 非第一视角：跟着鼠标走（俯视 46m 高，6m 的拾取距离自然什么也够不到，不会误亮）
+  const ndc = new THREE.Vector2()
+  const onPointerMove = (event) => {
+    if (walkActive || viewMode === 'walk') return
+    const rect = renderer.domElement.getBoundingClientRect()
+    ndc.set(
+      ((event.clientX - rect.left) / rect.width) * 2 - 1,
+      -((event.clientY - rect.top) / rect.height) * 2 + 1,
+    )
+    raycaster.setFromCamera(ndc, camera)
+    applyHover(pickBookAt(raycaster.ray, 6))
+  }
+  const onPointerLeave = () => applyHover(null)
+  renderer.domElement.addEventListener('pointermove', onPointerMove)
+  renderer.domElement.addEventListener('pointerleave', onPointerLeave)
 
   // 第一视角下的鼠标按下：
   //  未锁定 → 重新接管鼠标（浏览器要求用户手势里才能 requestPointerLock）
@@ -344,7 +489,19 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       height = h
     },
     update(elapsed, dt) {
-      driveRobot(robot, elapsed)
+      agent.update(dt) // 巡航环线 / A* 路径的路点跟随（寻路本身只在收到命令时跑一次）
+      screens.tick(dt)
+      burst.update(dt)
+      hologram.update(elapsed, dt)
+
+      // 全息：相机走进触发圈就亮，并通知 React 弹出陈嘉庚的故事时间轴
+      const near = camera.position.distanceTo(hologram.center) < HOLOGRAM.triggerRadius
+      if (near !== holoNear) {
+        holoNear = near
+        hologram.setActive(near)
+        useHallStore.getState().setHologramActive(near)
+      }
+
       updateWalls(walls, camera.position, wallsLocked)
       // 机器人会跑，标注点得跟着它走
       hotspots.updateAnchor('robot', [
@@ -379,6 +536,12 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
           hovered = config
           onWalkHover?.(config)
         }
+        // 准星没瞄到热点时再试书目：盯着书脊看一眼，书架屏就翻到那本书
+        if (config) applyHover(null)
+        else {
+          raycaster.setFromCamera(screenCenter, camera)
+          applyHover(pickBookAt(raycaster.ray, 4))
+        }
       } else {
         controls.update(dt)
       }
@@ -411,6 +574,19 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     },
     /** 准星现在指着哪个热点（App 的 E 键调它） */
     pickHotspot,
+    /** 测试钩子：机器人状态 / 全息状态（UI 那边走 store，不读这里） */
+    robotState: () => agent.getState(),
+    hologramState: () => ({ near: holoNear, fade: hologram.fade, center: hologram.center.toArray() }),
+    /** 测试钩子：规划一条路径（断言"绕开中庭那个洞"用） */
+    navPlan: (from, to) => planPath(navGrid, from, to)?.map((p) => [p.x, p.z]) ?? null,
+    /**
+     * 测试钩子：不渲染，按 60Hz 把机器人的跟随推进 N 秒 —— 和 simulateWalk 同一个道理，
+     * 无头软渲染 1~2fps 且 dt 被钳在 0.1s，靠等真实时间走完一条 40m 的路径要几分钟。
+     */
+    simulateRobot: (seconds) => {
+      for (let i = 0, n = Math.round(seconds * 60); i < n; i++) agent.update(1 / 60)
+      return agent.getState()
+    },
     setAutoRotate(on) {
       controls.autoRotate = on
     },
@@ -429,6 +605,10 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     setWallsLocked(locked) {
       wallsLocked = locked
     },
+    /** 碰撞盒线框的显隐（?debug=colliders 或测试钩子） */
+    setColliderDebug(visible) {
+      if (colliderDebug) colliderDebug.visible = visible
+    },
     /**
      * 切走/切回大厅时的收口：离开时把第一视角状态整个收回，
      * 回来就是干净的俯视总览（不然切回来会两套输入抢相机）。
@@ -438,6 +618,13 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
         controls.enabled = true
         controls.update(0)
         return
+      }
+      // 离开大厅：把"跟着相机走"的状态收回来（否则回来时会挂着一个早已失效的全息时间轴）
+      applyHover(null)
+      if (holoNear) {
+        holoNear = false
+        hologram.setActive(false)
+        useHallStore.getState().setHologramActive(false)
       }
       if (walkActive || viewMode === 'walk') {
         viewMode = 'dollhouse'
@@ -463,6 +650,13 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     },
     dispose() {
       renderer.domElement.removeEventListener('mousedown', onCanvasDown)
+      renderer.domElement.removeEventListener('pointermove', onPointerMove)
+      renderer.domElement.removeEventListener('pointerleave', onPointerLeave)
+      unsubscribeStore()
+      screens.dispose()
+      marker.dispose()
+      hologram.dispose()
+      burst.dispose()
       walk.dispose()
       controls.dispose()
       hotspots.dispose()

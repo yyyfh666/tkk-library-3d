@@ -248,6 +248,46 @@ const stairRailsL2 = (side) => [
   [side * 8.2, -10.9, side * 16.2, -10.9, HALL.floorY[2]],
 ]
 
+/**
+ * 栏杆经过柱子时要**断开**（留柱宽的缺口）——不然栏杆会从柱身里横穿过去（明显穿模）。
+ * 柱子和栏杆同在布局层，这里按"柱心到线段的投影"切分。
+ */
+function splitRailAtColumns(seg) {
+  const [x0, z0, x1, z1] = seg
+  const len = Math.hypot(x1 - x0, z1 - z0)
+  if (len < 0.1) return [seg]
+  const ux = (x1 - x0) / len
+  const uz = (z1 - z0) / len
+  // 计算每个柱心在线段上的投影位置（只收"真的压在这条线上"的）
+  const cuts = []
+  for (const [cx, cz] of COLUMN_SPOTS) {
+    const t = (cx - x0) * ux + (cz - z0) * uz
+    if (t <= 0.2 || t >= len - 0.2) continue
+    const px = x0 + ux * t
+    const pz = z0 + uz * t
+    if (Math.hypot(cx - px, cz - pz) > 0.5) continue
+    cuts.push([Math.max(0, t - 0.55), Math.min(len, t + 0.55)])
+  }
+  if (!cuts.length) return [seg]
+  cuts.sort((a, b) => a[0] - b[0])
+  const out = []
+  let cursor = 0
+  for (const [a, b] of cuts) {
+    if (a > cursor) out.push(railSlice(seg, x0, z0, ux, uz, cursor, a))
+    cursor = Math.max(cursor, b)
+  }
+  if (cursor < len) out.push(railSlice(seg, x0, z0, ux, uz, cursor, len))
+  return out
+}
+
+const railSlice = (seg, x0, z0, ux, uz, t0, t1) => [
+  x0 + ux * t0,
+  z0 + uz * t0,
+  x0 + ux * t1,
+  z0 + uz * t1,
+  seg[4],
+]
+
 export const RAILINGS = [
   atriaRails(HALL.floorY[0], [-7, 7]), // 一层南边留给层叠看台的缺口
   atriaRails(HALL.floorY[1]),
@@ -256,7 +296,9 @@ export const RAILINGS = [
   stairRailsL1(-1),
   stairRailsL2(1),
   stairRailsL2(-1),
-].flat()
+]
+  .flat()
+  .flatMap(splitRailAtColumns)
 
 /* ------------------------------------------------------------------ *
  * 书架：2.4m 高 × 2.0m 宽 × 0.6m 深，成对背靠背摆成"书巷"（照片 01/05）
@@ -277,6 +319,54 @@ export const SHELVES = [
   // 二层东翼延续一排（照片 03 里廊边就是书架）
   ...[6.4, 8.9].flatMap((z) => shelfPair(1, 13.7, z, Math.PI / 2)),
 ]
+
+/* ------------------------------------------------------------------ *
+ * 机器人的目标点（场景二：导览机器人）
+ * ------------------------------------------------------------------ */
+
+/** 给每架书架一个可读编号（S01…），mock 书目用它定位 */
+export const SHELF_UNITS = SHELVES.map((s, i) => ({ ...s, id: `S${String(i + 1).padStart(2, '0')}` }))
+
+/** 一层（机器人能到的那层）的书架 */
+export const SHELF_UNITS_L0 = SHELF_UNITS.filter((s) => s.level === 0)
+
+/** 站在某架书架前的点：从书架中心朝**中庭方向**退 1.1m 就是过道 */
+export function shelfStandPoint(shelf) {
+  const len = Math.hypot(shelf.x, shelf.z) || 1
+  const ux = -shelf.x / len
+  const uz = -shelf.z / len
+  return [shelf.x + ux * 1.35, shelf.z + uz * 1.35]
+}
+
+/** 机器人的固定兴趣点（POI） */
+export const ROBOT_POIS = {
+  cruise: { label: '中庭巡航' },
+  checkin: { label: '中庭前 · 打卡点', point: [0, 7.4] },
+  desk: { label: '借还服务台', point: [15.0, 1.1] },
+  exhibit: { label: '展览区 · 全息投影', point: [0, -8.0] },
+}
+
+/**
+ * 陈嘉庚全息展台（场景三）的位置。几何在 hologram.js 里砌，但**位置只有这一个出处**：
+ * 挡人的碰撞盒、相机触发圈都读它。摆在北墙展区前、两对北翼书架之间的空档里（x≈0 的走道正对着）。
+ */
+export const HOLOGRAM = {
+  x: 0,
+  z: -10.1,
+  radius: 0.76, // 基座外径（碰撞盒与光柱用）
+  triggerRadius: 5, // 相机进这个圈就亮起来
+}
+
+/**
+ * 机器人的可行范围与**显式禁行区**。
+ * 一层楼板在中庭处是挖了洞的（`FLOORS.level0` 挖掉 ATRIUM），但碰撞盒里没有任何一条能表达
+ * "这里的空气不能站"—— 栏杆只围了边，南边还给层叠看台留了缺口。不封掉的话 A* 会直接从
+ * 中庭穿过去（最短路），机器人于是飘在看台上空。
+ */
+export const ACCESS = {
+  bounds: { x0: -halfW + 1.1, x1: halfW - 1.1, z0: -halfD + 1.1, z1: halfD - 1.1 },
+  voidRects: [{ x0: -AX - 0.2, x1: AX + 0.2, z0: -AZ - 0.2, z1: AZ + 0.2 }],
+}
 
 /* ------------------------------------------------------------------ *
  * 家具：阅览长桌（南窗边）、服务台、VR 区

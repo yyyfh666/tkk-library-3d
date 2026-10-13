@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { createMaterials, applyMaterialPhase, attachEnvMap } from './materials.js'
 import { createHallTextures, disposeHallTextures, createRoomEnvTexture } from './textures.js'
 import { createIslandWorld, createHallWorld } from './worlds.js'
+import { useHallStore } from '../state/store.js'
 
 /**
  * 引擎：整个应用只建 **一个** WebGLRenderer，两个场景（岛 / 大厅）各自拥有
@@ -152,6 +153,19 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
       },
       /** 当前是否在第一视角（截图脚本判断用） */
       walkActive: () => worlds.hall.walkActive,
+      /** 碰撞盒线框开关（排查"能穿过去"） */
+      colliderDebug: (on) => worlds.hall.setColliderDebug?.(on),
+      /**
+       * 场景二/三：机器人状态与全息状态，以及"派机器人去某点"。
+       * 走 store 那条路（和 UI 完全同一条），所以这里验证到的就是用户点按钮时的行为。
+       */
+      robotState: () => worlds.hall.robotState?.() ?? null,
+      hologramState: () => worlds.hall.hologramState?.() ?? null,
+      navPlan: (from, to) => worlds.hall.navPlan?.(from, to) ?? null,
+      simulateRobot: (seconds) => worlds.hall.simulateRobot?.(seconds) ?? null,
+      commandRobot: (point, label = '测试目标', payload = null) =>
+        useHallStore.getState().commandRobot({ point, label, payload }),
+      hallState: () => useHallStore.getState(),
       /**
        * 走路仿真：不渲染，直接按 60Hz 把 walk.update 推进 N 秒。
        * 无头软件渲染只有 1~2 fps、dt 还被钳在 0.1s，靠"等真实时间"测走路根本测不动；
