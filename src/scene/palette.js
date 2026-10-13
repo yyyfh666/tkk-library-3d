@@ -37,7 +37,7 @@ export const C = {
   trunk: '#A9805A',
   wood: '#A97C4E',
 
-  // —— 室内 ——
+  // —— 室内（旧版大厅用；重建后的大厅改用下面 hall* 一组）——
   floor: '#CBB894', // 五楼大厅水磨石/木地板（别太浅，室内顶光下会洗成白色）
   floorDark: '#C0AE90',
   shelf: '#A97C4E',
@@ -51,6 +51,23 @@ export const C = {
   robotAccent: '#FF8A1F',
   vrChair: '#5B6E8C',
   rug: '#C97F5A',
+
+  // —— 三楼大厅重建版（配色依据：参考资料/实拍照片 01–12）——
+  hallBrick: '#B2603F', // 红砖墩柱 / 砖墙（照片 07/08 的暖砖红）
+  hallMortar: '#C9C2B4', // 砖缝：照片里砖缝比砖面**亮**
+  hallWall: '#F4F1E9', // 白墙灰泥
+  hallWood: '#6E4B33', // 深胡桃木书架端板（照片 01/05）
+  hallRailWood: '#96633A', // 栏杆木扶手，比书架亮一档
+  hallFloor: '#E4DED2', // 抛光白瓷砖（照片 06/11 的地面）
+  hallFloorDark: '#3B3835', // 中庭深色拼花砖（照片 08）
+  hallFloorRing: '#D9D4C8', // 深色砖上的白圈纹样
+  hallGranite: '#A8A29A', // 花岗岩：柱基 / 栏杆压顶
+  hallCeiling: '#F2EFE8', // 白色格栅吊顶（照片 02）
+  hallCeilingBar: '#C9C5BC', // 吊顶格栅压条
+  hallTrim: '#8E8A82', // 收边 / 踢脚
+  hallLeaf: '#5E8A46', // 垂吊绿植（照片 03/04 的标志性垂蔓）
+  hallSky: '#EDF2F6', // 窗外背景·昼
+  hallTrees: '#6E9950', // 窗外背景·树带
 
   // —— 光照/天空（scene.background 与页面底色共用，切换时一起插值）——
   pageDay: '#F4EFE7', // 米白：参考图白天整页就是这个底色，没有"天空"
