@@ -502,3 +502,71 @@ body {
     font-size: 42px;
   }
 }
+
+/* ---------------- 第一视角（准星 / 准星提示 / 继续漫游） ---------------- */
+.crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  pointer-events: none;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.28);
+  transition: transform 0.12s ease, border-color 0.12s ease;
+}
+
+.crosshair::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 3px;
+  height: 3px;
+  margin: -1.5px 0 0 -1.5px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.crosshair--hot {
+  transform: scale(1.35);
+  border-color: #ff8a1f;
+}
+
+.crosshair--hot::after {
+  background: #ff8a1f;
+}
+
+.walk-prompt {
+  position: absolute;
+  left: 50%;
+  top: calc(50% + 26px);
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 6px 14px;
+  border-radius: 999px;
+  background: rgba(16, 22, 30, 0.72);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 0.6px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.walk-overlay {
+  position: absolute;
+  left: 50%;
+  bottom: 96px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 10px 20px;
+  border-radius: 999px;
+  background: rgba(16, 22, 30, 0.66);
+  color: #fff;
+  font-size: 13px;
+  letter-spacing: 1px;
+  pointer-events: none;
+  white-space: nowrap;
+}

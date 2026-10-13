@@ -36,6 +36,15 @@ const SHOTS = [
   ['interior-09-stair', `${ROOM}; __stage.setCamera({ pos: [14.2, 1.65, -1.4], target: [14.2, 3.2, -9], fov: 70 })`, 400],
   ['interior-10-night-entry', `__stage.app.setPhaseTarget(1); ${ROOM}; __stage.setCamera({ pos: [0, 1.65, 9.6], target: [0, 1.7, -6], fov: 70 })`, 2800],
   ['interior-11-night-atrium', `${ROOM}; __stage.setCamera({ pos: [0, 1.65, 7.4], target: [0, 3.4, -2], fov: 70 })`, 400],
+
+  // —— 真正的第一视角模式（enterWalkInstant + setWalkPose，不走 PointerLock）——
+  ['interior-12-walk-entry', `__stage.app.setPhaseTarget(0); __stage.setWalkPose(0, 9.4, 0, -0.02, 0)`, 2600],
+  ['interior-13-walk-atrium', `__stage.setWalkPose(0, 7.0, 0, 0.16, 0)`, 400],
+  ['interior-14-walk-gallery', `__stage.setWalkPose(10.8, 8.6, 0.9, -0.05, 4.2)`, 400],
+  ['interior-15-walk-shelf', `__stage.setWalkPose(11.2, 7.4, -1.57, -0.04, 0)`, 400],
+  ['interior-16-walk-stair', `__stage.setWalkPose(14.2, -1.4, 0, 0.14, 0)`, 400],
+  ['interior-17-walk-terrace', `__stage.setWalkPose(0, 6.6, 0, 0.03, 0)`, 400],
+  ['interior-18-walk-night', `__stage.app.setPhaseTarget(1); __stage.setWalkPose(0, 7.0, 0, 0.1, 0)`, 2800],
 ]
 
 mkdirSync(OUT_DIR, { recursive: true })
@@ -147,14 +156,83 @@ for (const [name, js, wait] of SHOTS) {
   await shoot(name)
 }
 
+// —— 准星拾取实测：站在中庭边上把准星对准"中庭挑空"热点，看提示有没有出来 ——
+await evaluate(`__stage.setWalkPose(0, 8, 0, 0.29, 0)`)
+// 软件渲染只有 1~2 fps，React 把提示渲染出来可能要好几帧 —— 轮询等它，别读一次就下结论
+let prompt = ''
+for (let i = 0; i < 12 && !prompt; i++) {
+  await sleep(400)
+  prompt = await evaluate(`document.querySelector('.walk-prompt')?.textContent ?? ''`)
+}
+const pickDiag = await evaluate(`(() => {
+  const hall = __stage.app.worlds.hall
+  const cfg = hall.pickHotspot()
+  return { active: hall.walkActive, hit: cfg ? cfg.id : null, prompts: document.querySelectorAll('.walk-prompt').length }
+})()`)
+console.log(`\n准星拾取：${prompt ? `✔ 命中「${prompt}」` : '✘ 没有命中任何热点（提示条没出来）'}`)
+console.log(`  诊断：walkActive=${pickDiag.active} 射线命中=${pickDiag.hit ?? 'null'} DOM 提示条=${pickDiag.prompts}`)
+await shoot('interior-19-walk-pick')
+
+// —— 键盘接线自检：合成一次真实 keydown，确认事件能到控制器（只验证"动了一下"）——
+await evaluate(`__stage.setWalkPose(0, 9.4, 0, 0, 0)`)
+await sleep(600)
+const before = await evaluate(`__stage.app.worlds.hall.walker.getPose().z`)
+await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyW' }))`)
+await sleep(1600)
+await evaluate(`window.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyW' }))`)
+const after = await evaluate(`__stage.app.worlds.hall.walker.getPose().z`)
+console.log(
+  `\n键盘接线：${Math.abs(after - before) > 0.02 ? `✔ W 键生效（z ${before.toFixed(2)} → ${after.toFixed(2)}）` : '✘ 按了 W 没动'}`,
+)
+
+// —— 走路仿真（60Hz 步进，不受渲染帧率影响）——
+console.log('\n走路仿真（期望：看台 y 0.4~1.1 / 楼梯到 y≈4.2 / 一层栏杆 x≈8.4 且 y=0 / 二层 y=4.2 不坠落）')
+const simWalk = async (label, setup, seconds, keys = ['KeyW']) => {
+  const p = await evaluate(`__stage.simulateWalk(${JSON.stringify(keys)}, ${seconds}, ${setup})`)
+  console.log(`  ${label}: x=${p.x.toFixed(2)} y=${p.y.toFixed(2)} z=${p.z.toFixed(2)}`)
+}
+await simWalk('走上看台（0,9.4 向北 2.5s）', '[0, 9.4, 0, 0, 0]', 2.5)
+await simWalk('爬上楼梯到二层（14.2,-1 向北 4.6s）', '[14.2, -1.0, 0, 0, 0]', 4.6)
+await simWalk('一层撞中庭栏杆（10.5,0 向西 2.5s）', '[10.5, 0, 1.5708, 0, 0]', 2.5)
+await simWalk('二层回廊撞栏杆（10.8,8.6 向中庭 3s）', '[10.8, 8.6, 0.9, 0, 4.2]', 3.0)
+await simWalk('书巷里走（11,7.4 向东 2s）', '[11, 7.4, -1.5708, 0, 0]', 2.0)
+await simWalk('下楼梯（14.2,-10 向南 5s）', '[14.2, -10, 3.1416, 0, 4.2]', 5.0)
+
 // —— 曝光探针：用数字守住"过曝 / 死黑"，不靠肉眼看截图 ——
+// 固定机位再测：白天、入口内一步（最亮的白瓷砖 + 顶光都在这张画面里）
+await evaluate(`__stage.app.setPhaseTarget(0); __stage.setWalkPose(0, 8.6, 0, 0, 0)`)
+await sleep(5000) // 相位过渡在 1~2fps 下要好几秒才走完
+await shoot('interior-20-probe-view') // 和探针同一机位，方便对着找最亮的那个点
 const probe = await evaluate(`__stage.probe(8, 5)`)
 const lum = probe.map(([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b)
 const max = Math.max(...lum)
 const min = Math.min(...lum)
-console.log(`\n曝光探针（当前机位 40 点）：max ${max.toFixed(0)} / min ${min.toFixed(0)}（0-255）`)
-console.log(max > 250 ? '  ⚠️ 有过曝点' : '  ✔ 无过曝')
+const mean = lum.reduce((a, b) => a + b, 0) / lum.length
+const hot = lum.filter((v) => v > 250).length
+console.log(`\n曝光探针（当前机位 40 点）：max ${max.toFixed(0)} / min ${min.toFixed(0)} / 平均 ${mean.toFixed(0)}（0-255）`)
+// 判据是"形态"而不是单个点的极值：光亮的抛光面上总会有零星的镜面高光点（正常），
+// 真正要防的是**整片死白**（过曝点成堆）和**整厅发灰**（平均亮度偏离）。
+console.log(`  过曝点 ${hot}/40 ${hot > 2 ? '⚠️ 偏多，可能有整片死白' : '✔ 只有零星高光'}`)
+console.log(`  平均亮度 ${mean.toFixed(0)} ${mean < 25 || mean > 200 ? '⚠️ 整体过暗/过亮' : '✔ 正常'}`)
 console.log(min < 16 ? '  ⚠️ 有死黑点' : '  ✔ 无死黑')
+if (hot > 2) {
+  // 过曝点在哪、是什么材质：对着屏幕坐标打射线问场景（比盯着截图猜快一万倍）
+  const hotPoints = lum
+    .map((v, i) => ({ v, x: ((i % 8) + 0.5) / 8, y: (Math.floor(i / 8) + 0.5) / 5 }))
+    .filter((s) => s.v > 250)
+  const what = await evaluate(`(() => {
+    const { THREE, scene, camera } = __stage.debug
+    const rc = new THREE.Raycaster()
+    return ${JSON.stringify(hotPoints.map((s) => [s.x, s.y]))}.map(([u, v]) => {
+      rc.setFromCamera(new THREE.Vector2(u * 2 - 1, -(v * 2 - 1)), camera)
+      const hit = rc.intersectObjects(scene.children, true)[0]
+      if (!hit) return '未命中'
+      const m = Array.isArray(hit.object.material) ? hit.object.material[0] : hit.object.material
+      return \`\${m?.name || hit.object.type} d=\${hit.distance.toFixed(1)}m\`
+    })
+  })()`)
+  console.log(`  过曝点 ${hotPoints.map((s, i) => `(${(s.x * 100).toFixed(0)}%,${(s.y * 100).toFixed(0)}%)→${what[i]}`).join('  ')}`)
+}
 
 const info = await evaluate(`__stage.info()`)
 console.log(`渲染统计：draw calls ${info.calls} / 三角面 ${info.triangles} / 几何体 ${info.geometries} / 贴图 ${info.textures}`)

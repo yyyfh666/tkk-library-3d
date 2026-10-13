@@ -108,3 +108,15 @@ export const DAY_NIGHT = {
   /** 岛下那张假接触阴影的不透明度 */
   contactShadowOpacity: [0.5, 0.62],
 }
+
+/**
+ * 大厅的室内灯（第一视角/夜间"馆灯初上"）。
+ * ⚠️ 点光的近距离亮度是 intensity / d²（r155+ 物理单位），
+ * 灯装在 3.0m 高时地面最亮处 ≈ intensity / 9 —— 别超过 ~1.5 的等效全亮，
+ * 否则浅色地砖上会出现一坨死白（曝光探针会抓它）。
+ */
+export const HALL_LIGHT = {
+  lampIntensity: [0, 6], // 白天全关，夜里 4 盏各 6
+  lampDistance: 26,
+  lampHeight: 3.0,
+}

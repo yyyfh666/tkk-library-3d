@@ -5,11 +5,14 @@
 export function SceneControls({
   scene,
   playing,
+  walking,
   onTogglePlay,
   onEnterHall,
   canEnterHall,
   onExitHall,
   onToggleView,
+  onEnterWalk,
+  onExitWalk,
   onReset,
 }) {
   const isIsland = scene === 'island'
@@ -30,9 +33,24 @@ export function SceneControls({
           <span aria-hidden="true">⌂</span>
           走进大厅
         </button>
+      ) : walking ? (
+        <>
+          <button className="ctl ctl--primary" type="button" onClick={onExitWalk}>
+            <span aria-hidden="true">⤡</span>
+            退出漫游
+          </button>
+          <button className="ctl" type="button" onClick={onExitHall}>
+            <span aria-hidden="true">←</span>
+            回到校园
+          </button>
+        </>
       ) : (
         <>
-          <button className="ctl ctl--primary" type="button" onClick={onToggleView}>
+          <button className="ctl ctl--primary" type="button" onClick={onEnterWalk}>
+            <span aria-hidden="true">⌖</span>
+            第一视角漫游
+          </button>
+          <button className="ctl" type="button" onClick={onToggleView}>
             <span aria-hidden="true">⤢</span>
             俯视 / 贴近
           </button>
@@ -55,6 +73,10 @@ function toggleFullscreen() {
   else document.documentElement.requestFullscreen?.()
 }
 
-export function Hint() {
-  return <p className="hint-bar">左键旋转 · 滚轮缩放 · 右键平移</p>
+export function Hint({ walk = false }) {
+  return (
+    <p className="hint-bar">
+      {walk ? 'WASD 移动 · Shift 加速 · 鼠标转头 · E 查看标注 · Esc 退出' : '左键旋转 · 滚轮缩放 · 右键平移'}
+    </p>
+  )
 }

@@ -63,7 +63,8 @@ export function applyLightPhase(lighting, t) {
   const mix = (pair) => THREE.MathUtils.lerp(pair[0], pair[1], t)
 
   sun.color.copy(new THREE.Color(DAY_NIGHT.sunColor[0])).lerp(new THREE.Color(DAY_NIGHT.sunColor[1]), t)
-  sun.intensity = mix(DAY_NIGHT.sunIntensity)
+  // sunScale 是"这个场景的太阳乘数"（大厅室内压到 0.75）—— 建灯时传进来，这里必须真的乘上
+  sun.intensity = mix(DAY_NIGHT.sunIntensity) * (lighting.sunScale ?? 1)
   sun.position.set(
     THREE.MathUtils.lerp(DAY_NIGHT.sunPosition[0][0], DAY_NIGHT.sunPosition[1][0], t),
     THREE.MathUtils.lerp(DAY_NIGHT.sunPosition[0][1], DAY_NIGHT.sunPosition[1][1], t),

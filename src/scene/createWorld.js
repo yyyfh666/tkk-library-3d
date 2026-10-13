@@ -10,7 +10,7 @@ import { createIslandWorld, createHallWorld } from './worlds.js'
  *
  * 昼夜由一个 0→1 的 phase 驱动：材质、光照、场景底色、页面底色全部由它插值。
  */
-export function createAppWorld({ container, onHotspotSelect }) {
+export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWalkHover }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
   renderer.shadowMap.enabled = true
@@ -29,7 +29,7 @@ export function createAppWorld({ container, onHotspotSelect }) {
 
   const worlds = {
     island: createIslandWorld(renderer, materials, { onHotspotSelect }),
-    hall: createHallWorld(renderer, materials, { onHotspotSelect }),
+    hall: createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, onWalkHover }),
   }
   // 两个 world 的标注层同时挂在 DOM 上，只显示当前这个
   for (const [name, world] of Object.entries(worlds)) {
@@ -136,12 +136,42 @@ export function createAppWorld({ container, onHotspotSelect }) {
   if (import.meta.env.DEV) {
     window.__stage = {
       app: api,
+      /** 调试用：暴露 THREE 和当前场景，截图回路可以拿来做"这个像素上是什么"的射线诊断 */
+      debug: { THREE, get scene() { return worlds[activeName].scene }, get camera() { return worlds[activeName].camera } },
       info: () => ({
         calls: renderer.info.render.calls,
         triangles: renderer.info.render.triangles,
         geometries: renderer.info.memory.geometries,
         textures: renderer.info.memory.textures,
       }),
+      /** 截图回路用：进第一视角并直接摆姿态（无头环境拿不到 PointerLock，所以不走锁） */
+      setWalkPose: (x, z, yaw = 0, pitch = 0, yHint = 0) => {
+        const hall = worlds.hall
+        hall.enterWalkInstant()
+        hall.walker.setPose(x, z, yaw, pitch, yHint)
+      },
+      /** 当前是否在第一视角（截图脚本判断用） */
+      walkActive: () => worlds.hall.walkActive,
+      /**
+       * 走路仿真：不渲染，直接按 60Hz 把 walk.update 推进 N 秒。
+       * 无头软件渲染只有 1~2 fps、dt 还被钳在 0.1s，靠"等真实时间"测走路根本测不动；
+       * 这个钩子把碰撞/楼梯/栏杆的验证变成纯逻辑推演，快且确定。
+       */
+      simulateWalk: (keyList, seconds, setup) => {
+        const hall = worlds.hall
+        hall.enterWalkInstant()
+        if (setup) {
+          const [x, z, yaw = 0, pitch = 0, yHint = 0] = setup
+          hall.walker.setPose(x, z, yaw, pitch, yHint)
+        }
+        const walker = hall.walker
+        walker.releaseAllKeys()
+        for (const k of keyList) walker.pressKey(k)
+        const steps = Math.round(seconds * 60)
+        for (let i = 0; i < steps; i++) walker.update(1 / 60)
+        walker.releaseAllKeys()
+        return walker.getPose()
+      },
       /** 给当前 world 直接摆机位（截图用；不经过补间） */
       setCamera: ({ pos, target, fov } = {}) => {
         const world = worlds[activeName]

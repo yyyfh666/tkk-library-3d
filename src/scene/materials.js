@@ -117,6 +117,7 @@ const SPECS = {
     bumpMap: 'brickBump',
     bumpScale: 0.014, // 米制：砖缝约 1.4cm 起伏
     roughness: 0.93,
+    envMapIntensity: 0.25, // 一点点环境光提亮，不然砖面死板
   },
   hallWall: {
     color: C.hallWall,
@@ -125,6 +126,9 @@ const SPECS = {
     bumpMap: 'plasterBump',
     bumpScale: 0.004,
     roughness: 0.96,
+    // 白墙靠这点环境反射才不"发灰"（参考照片里整厅是亮白的）。
+    // 注意别给高：0.5 以上白墙就直接过曝（曝光探针的教训）
+    envMapIntensity: 0.35,
   },
   hallColumn: {
     color: C.hallWall, // 白色凹槽圆柱（环廊柱），bump 是竖槽
@@ -133,6 +137,7 @@ const SPECS = {
     bumpMap: 'fluteBump',
     bumpScale: 0.02,
     roughness: 0.9,
+    envMapIntensity: 0.3,
   },
   hallWood: {
     color: '#FFFFFF', // 胡桃木色画在贴图里
@@ -159,8 +164,8 @@ const SPECS = {
     map: 'floorTile',
     bumpMap: 'floorTileBump',
     bumpScale: 0.0015,
-    roughness: 0.3, // 抛光砖：低粗糙度 + envMap 才有反光
-    envMapIntensity: 0.75,
+    roughness: 0.34, // 抛光砖：低粗糙度 + envMap 才有反光
+    envMapIntensity: 0.3, // 别贪高：0.75/0.45 时阳光下的镜面高光都会顶到 255（曝光探针抓到的）
   },
   hallFloorDark: {
     color: '#FFFFFF', // 深色拼花砖画在贴图里（含白圈）
@@ -169,8 +174,8 @@ const SPECS = {
     map: 'atriumFloor',
     bumpMap: 'atriumFloorBump',
     bumpScale: 0.002,
-    roughness: 0.24,
-    envMapIntensity: 0.9,
+    roughness: 0.26,
+    envMapIntensity: 0.35,
   },
   hallGranite: {
     color: C.hallGranite,
@@ -179,7 +184,7 @@ const SPECS = {
     bumpMap: 'graniteBump',
     bumpScale: 0.002,
     roughness: 0.42,
-    envMapIntensity: 0.55,
+    envMapIntensity: 0.25,
   },
   hallStairTread: {
     color: '#6B625A', // 楼梯深色踏步（照片 04：深色踏面 + 浅色包边）
@@ -188,7 +193,7 @@ const SPECS = {
     bumpMap: 'graniteBump',
     bumpScale: 0.002,
     roughness: 0.45,
-    envMapIntensity: 0.5,
+    envMapIntensity: 0.25,
   },
   hallStairNosing: { color: '#D8D2C4' }, // 踏步前缘的浅色包边
   hallCeiling: {
@@ -197,7 +202,13 @@ const SPECS = {
     map: 'ceiling',
     bumpMap: 'ceilingBump',
     bumpScale: 0.003,
-    roughness: 0.95,
+    // 吊顶面朝下：收不到太阳、只有半球光+环境光，不补亮就是一块灰板。
+    // 给一点"常亮自发光"当**室内反光的替身**（照片里整厅亮白，靠的就是天花漫反射）。
+    envMapIntensity: 0.45,
+    dayEmissive: '#7E7A6E',
+    dayEmissiveIntensity: 1,
+    nightEmissive: '#5E5648', // 夜里馆灯还亮着，吊顶不该黑下去
+    nightEmissiveIntensity: 0.9,
   },
   hallMetal: {
     color: '#26282C', // 黑钢：栏杆 / 书架钢架
@@ -322,6 +333,10 @@ export function createMaterials({ textures = null, envMap = null } = {}) {
     material.userData.nightEmissive = new THREE.Color(spec.nightEmissive ?? '#000000')
     material.userData.dayEmissiveIntensity = spec.dayEmissiveIntensity ?? 0
     material.userData.nightEmissiveIntensity = spec.nightEmissiveIntensity ?? 0
+    // ⚠️ 记下"这张表里声明过的"环境反射强度。不能事后读 material.envMapIntensity 来判断：
+    // MeshStandardMaterial 的默认值就是 1，用它当判据会把环境挂到**所有** Standard 材质上，
+    // 每个面都被环境亮度整体抬亮（白墙上直接过曝 —— 曝光探针 + 射线诊断抓到的就是这个）。
+    material.userData.envMapIntensity = spec.envMapIntensity ?? 0
 
     materials[key] = material
   }
@@ -336,8 +351,10 @@ export function createMaterials({ textures = null, envMap = null } = {}) {
 export function attachEnvMap(materials, envMap) {
   if (!envMap) return
   for (const material of Object.values(materials)) {
-    if (material.isMeshStandardMaterial && material.envMapIntensity > 0) {
+    const declared = material.userData.envMapIntensity ?? 0
+    if (material.isMeshStandardMaterial && declared > 0) {
       material.envMap = envMap
+      material.envMapIntensity = declared
       material.needsUpdate = true
     }
   }

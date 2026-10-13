@@ -16,6 +16,8 @@ export default function App() {
   const [scene, setScene] = useState('island') // island | hall
   const [fading, setFading] = useState(false)
   const [ready, setReady] = useState(false) // world 建好之前"走进大厅"要禁用
+  const [walk, setWalk] = useState({ active: false, locked: false }) // 第一视角状态
+  const [walkHover, setWalkHover] = useState(null) // 准星指着哪个热点
 
   useEffect(() => {
     const world = createAppWorld({
@@ -25,6 +27,8 @@ export default function App() {
         setSelected(hotspot)
         worldRef.current?.worlds.island.focusOn(hotspot.position)
       },
+      onWalkChange: (state) => setWalk(state),
+      onWalkHover: (config) => setWalkHover(config),
     })
     worldRef.current = world
     setReady(true)
@@ -54,6 +58,19 @@ export default function App() {
   useEffect(() => {
     worldRef.current?.setPhaseTarget(isNight ? 1 : 0)
   }, [isNight])
+
+  // 第一视角：E 键查看准星指着的东西（指针锁定时鼠标点不到底部的胶囊条）
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.code !== 'KeyE' || !walk.active) return
+      const config = worldRef.current?.worlds.hall.pickHotspot()
+      if (!config) return
+      worldRef.current.worlds.hall.walker.unlock() // 解锁指针，信息卡上的按钮才点得到
+      setSelected(config)
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [walk.active])
 
   useEffect(() => {
     const world = worldRef.current
@@ -101,6 +118,8 @@ export default function App() {
   }, [])
 
   const toggleHallView = useCallback(() => worldRef.current?.worlds.hall.toggleView(), [])
+  const enterWalk = useCallback(() => worldRef.current?.worlds.hall.enterWalk(), [])
+  const exitWalk = useCallback(() => worldRef.current?.worlds.hall.exitWalk(), [])
   const resetHallView = useCallback(() => {
     setSelected(null)
     worldRef.current?.worlds.hall.gotoView('dollhouse')
@@ -141,16 +160,26 @@ export default function App() {
         activeId={selected?.id}
         onSelect={selectHotspot}
       />
-      <Hint />
+      <Hint walk={walk.active} />
+
+      {/* 第一视角：准星 + 准星旁的提示 + 未锁定时"点击画面继续" */}
+      {walk.active && <div className={walkHover ? 'crosshair crosshair--hot' : 'crosshair'} aria-hidden="true" />}
+      {walk.active && walkHover && !selected && <p className="walk-prompt">{walkHover.label} · 按 E 查看</p>}
+      {walk.active && !walk.locked && (
+        <p className="walk-overlay">点击画面继续漫游 · WASD 移动 · Esc 退出</p>
+      )}
 
       <SceneControls
         scene={scene}
         playing={playing}
+        walking={walk.active}
         onTogglePlay={() => setPlaying((v) => !v)}
         onEnterHall={enterHall}
         canEnterHall={canEnterHall}
         onExitHall={exitHall}
         onToggleView={toggleHallView}
+        onEnterWalk={enterWalk}
+        onExitWalk={exitWalk}
         onReset={isIsland ? resetView : resetHallView}
       />
 
