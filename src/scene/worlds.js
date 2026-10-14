@@ -6,7 +6,16 @@ import { buildLibrary } from './library.js'
 import { buildProps } from './props.js'
 import { createHotspots, ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './hotspots.js'
 import { buildHall, updateWalls } from './hall.js'
-import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS, ROBOT_PATH, HOLOGRAM, ACCESS, VR_READ } from './hallLayout.js'
+import {
+  HALL,
+  HALL_VIEWS,
+  HOTSPOT_ANCHORS,
+  ROBOT_PATH,
+  HOLOGRAM,
+  ACCESS,
+  VR_READ,
+  ATRIUM_DRESSING,
+} from './hallLayout.js'
 import { createWalkControls } from './walkControls.js'
 import { buildNavGrid, planPath } from './nav.js'
 import { resolveXZ } from './collision.js'
@@ -214,6 +223,40 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     scene.add(light)
     return light
   })
+
+  /* —— 中庭的天光与展品补光（照片 04：光从整片天窗倾泻下来）—— */
+  // 天光用 SpotLight 而不是再加一盏平行光：平行光出不来"锥形光柱"的感觉。
+  // 三条刻意的取值：① decay = 0 —— 物理衰减在 12m 高度上会把强度吃到近乎为零，
+  // 要它有用就得给一个离谱的 intensity；② castShadow = false —— 投影只留太阳那一盏
+  // （README 的阴影四件套是按太阳调的，多一盏投影灯就多一套参数和一张 shadow map）；
+  // ③ 强度很克制 —— 白天大厅的光预算 ≈ 太阳1.19 + 半球0.36 + 环境0.11 ≈ 1.66，再多就顶爆。
+  const dressing = ATRIUM_DRESSING
+  const skylight = new THREE.SpotLight(
+    0xfff2dc,
+    dressing.lights.skylight.intensity,
+    0,
+    dressing.lights.skylight.angle,
+    dressing.lights.skylight.penumbra,
+    0,
+  )
+  skylight.position.set(0, dressing.lights.skylight.y, 0)
+  skylight.target.position.set(0, 0, 0)
+  scene.add(skylight, skylight.target)
+
+  // 展品补光：**一盏摆中**，同时罩住根雕与两排展柜。队友写的是"展柜和木雕上方各加一盏"，
+  // 但每盏点光都进 shader 循环（README 记着"点光只放 4 盏，多了帧率真的掉"），只加一盏。
+  const exhibitLight = new THREE.PointLight(
+    0xffe9c8,
+    dressing.lights.exhibit.intensity,
+    dressing.lights.exhibit.distance,
+    2,
+  )
+  exhibitLight.position.set(
+    dressing.lights.exhibit.x,
+    dressing.lights.exhibit.y,
+    dressing.lights.exhibit.z,
+  )
+  scene.add(exhibitLight)
 
   // ?debug=colliders：把全部碰撞盒画成线框（红=挡人的实体，黄=只当地面的看台类）。
   // 排查"能穿过去"这类问题时，开着它走一圈就能看出哪个物件忘了登记碰撞。
@@ -786,6 +829,8 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       // 大厅灯池：夜里亮起来（馆灯初上）
       const lampIntensity = THREE.MathUtils.lerp(HALL_LIGHT.lampIntensity[0], HALL_LIGHT.lampIntensity[1], t)
       for (const lamp of lamps) lamp.intensity = lampIntensity
+      // 天窗那道光夜里收掉九成：白天它是阳光，夜里没理由还剩一柱
+      skylight.intensity = dressing.lights.skylight.intensity * THREE.MathUtils.lerp(1, 0.1, t)
     },
     dispose() {
       renderer.domElement.removeEventListener('mousedown', onCanvasDown)

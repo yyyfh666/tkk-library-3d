@@ -498,6 +498,36 @@ console.log(
     : `✘ 走开了还没收回：active=${vrOff.active} fade=${vrOff.fade.toFixed(3)}`,
 )
 
+// ⑪ 中庭陈设（台阶上的玻璃罩 / 台缘盆栽 / 围住展台的红绳）+ 它们的碰撞
+await evaluate(`__stage.setWalkPose(0, 9.2, 0, -0.14, 0)`)
+await pump(2)
+await sleep(300)
+await shoot('interior-31-atrium-dressing')
+
+// 队友点名要的"防止第一视角穿模"：同一条起跑线、同样走 1.5s，
+// x=0 那条道上有玻璃罩、x=1.03 那条道在罩子中间（间距 2.067、罩宽 0.34，缝够宽）——
+// 只要前者被挡在罩子前、后者能一路走上台阶，就说明碰撞真的生效了（不是只看代码）。
+const laneBlocked = await evaluate(`__stage.simulateWalk(['KeyW'], 1.5, [0, 7.0, 0, 0, 0])`)
+const laneFree = await evaluate(`__stage.simulateWalk(['KeyW'], 1.5, [1.03, 7.0, 0, 0, 0])`)
+console.log(
+  laneBlocked.z > 5.3 && laneFree.z < 5.0
+    ? `✔ 玻璃罩挡人：正对罩子那条道停在 z=${laneBlocked.z.toFixed(2)}，从缝里走那条到了 z=${laneFree.z.toFixed(2)}`
+    : `✘ 碰撞不对：正对罩子 z=${laneBlocked.z.toFixed(2)}（期望 >5.3），缝里 z=${laneFree.z.toFixed(2)}（期望 <5.0）`,
+)
+
+// 红绳围挡：从看台第 1 级朝中央展台走 3s，看是不是被"四段薄 AABB 封成的圈"拦住。
+// 两个坑都踩过一遍，写在这儿免得下次再踩：
+//  ① 起跑点必须在**台面上**（z=5.2 在第 1 级上）。中庭 z<0.5 是空的，站在空处会直接
+//     出生在 -4.2 的下层地面，人就从绳底下走过去了，测不到围挡；
+//  ② x 必须**在根雕碰撞盒（±1.1）之外、围挡（±2.4）之内**。取 1.03 的话拦住人的其实是
+//     根雕自己（停在 2.12），断言会"绿灯但测错了东西"。这里取 1.55（也在罩子缝里）。
+const ropeStop = await evaluate(`__stage.simulateWalk(['KeyW'], 3.0, [1.55, 5.2, 0, 0, 0])`)
+console.log(
+  ropeStop.z > 1.6 && ropeStop.z < 2.0
+    ? `✔ 红绳围挡拦得住：朝中央展台直走 3s，停在 z=${ropeStop.z.toFixed(2)}（围挡在 1.45，根雕在 1.8 之前够不着）`
+    : `✘ 围挡没拦住：3s 后到了 z=${ropeStop.z.toFixed(2)}（期望停在 1.6~2.0）`,
+)
+
 // 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
 await evaluate(`__stage.commandRobot(null)`)
 await evaluate(`__stage.simulateRobot(20)`)

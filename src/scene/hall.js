@@ -10,6 +10,7 @@ import {
   RAMPS,
   TERRACES,
   CARVING,
+  ATRIUM_DRESSING,
   RAILINGS,
   SHELF_UNITS,
   TABLES,
@@ -67,6 +68,11 @@ const SHADOW = {
   hallCurtain: { cast: true, receive: true },
   hallExhibit: { cast: true, receive: true },
   hallBook: { cast: true, receive: false },
+  hallGranitePolish: { cast: false, receive: true }, // 踏面只接影，自己不投影（薄板上投影全是硬边）
+  hallVitrine: { cast: false, receive: false }, // 透明玻璃投影会变成一块灰板
+  hallRope: { cast: false, receive: false },
+  hallPot: { cast: true, receive: true },
+  hallShrub: { cast: true, receive: false },
   desk: { cast: true, receive: true },
   chair: { cast: true, receive: true },
   wood: { cast: true, receive: true },
@@ -86,6 +92,11 @@ const SHADOW = {
 }
 
 const BOOK_COLORS = ['#C4573A', '#4E6E8C', '#D9A441', '#6E9E55', '#7A5A8C', '#3F6B31', '#8C3A3A', '#D8CFC0']
+
+/** 玻璃罩里那件"展品"的颜色（示意：不是真展品，就是几块上色的小方块） */
+const RELIC_COLORS = ['#D9A441', '#C4573A', '#6E9E55', '#4E6E8C', '#8C7A9E', '#B5762F']
+/** 展台灌木的深浅（走 instanceColor，所以 hallShrub 材质本身必须接近纯白） */
+const SHRUB_COLORS = ['#6E9E55', '#7FB264', '#5E8A4A', '#86B06A']
 
 export function buildHall(materials) {
   const group = new THREE.Group()
@@ -452,8 +463,10 @@ export function buildHall(materials) {
   }
 
   // 层叠看台：collider 只做"地面候选"（groundOnly），人能一级级迈上去
+  // 踏面用抛光石（hallGranitePolish）—— 照片 04 里这层地面是照得见影子的，
+  // 而立柱/柱基/花槽仍用哑光的 hallGranite，两者对比才对
   for (const tier of TERRACES) {
-    addBox('hallGranite', {
+    addBox('hallGranitePolish', {
       w: tier.x1 - tier.x0,
       h: tier.top + 0.5,
       d: tier.z1 - tier.z0,
@@ -487,6 +500,157 @@ export function buildHall(materials) {
       addGeo('hallCarving', g)
     }
     addColliderBox(x, y + 0.75, z, 2.2, 1.5, 1.6, 'solid')
+  }
+
+  /* ================================================================
+   * 5b. 中庭陈设（照片 04）：台阶上的小玻璃罩、台缘的盆栽带、围住展台的红绳
+   *
+   * 这一节是这个厅里除了书之外**第一处不走 addGeo 的东西**：addGeo 是"同材质合并成
+   * 一个不带实例色的大几何"的路子，上不了逐实例的颜色与摆放；而罩子/绳子/盆栽正需要
+   * 实例化（队友点名的性能要求）。所以它们走 InstancedMesh，碰撞照样逐条手动登记。
+   * ================================================================ */
+
+  {
+    const D = ATRIUM_DRESSING
+    const UP = new THREE.Vector3(0, 1, 0)
+    const m4 = new THREE.Matrix4()
+    const qt = new THREE.Quaternion()
+    const v3 = new THREE.Vector3()
+    const s3 = new THREE.Vector3()
+
+    const makeInstanced = (geo, matKey, count) => {
+      const mesh = new THREE.InstancedMesh(geo, materials[matKey], count)
+      const policy = SHADOW[matKey] ?? { cast: true, receive: true }
+      mesh.castShadow = policy.cast
+      mesh.receiveShadow = policy.receive
+      mesh.frustumCulled = false // 实例散在整个中庭，包围球跨半厅，剔除反而害事（同书）
+      group.add(mesh)
+      return mesh
+    }
+    const place = (mesh, i, x, y, z, ry = 0, s = 1) => {
+      qt.setFromAxisAngle(UP, ry)
+      v3.set(x, y, z)
+      s3.set(s, s, s)
+      m4.compose(v3, qt, s3)
+      mesh.setMatrixAt(i, m4)
+    }
+
+    // —— 玻璃展柜：罩子 + 底座 + 里面那件"展品" ——
+    const vs = D.vitrine
+    const glass = makeInstanced(
+      new THREE.BoxGeometry(vs.w, vs.h, vs.d).translate(0, vs.h / 2, 0),
+      'hallVitrine',
+      D.vitrines.length,
+    )
+    const vBase = makeInstanced(
+      new THREE.BoxGeometry(vs.w + 0.06, 0.06, vs.d + 0.06).translate(0, 0.03, 0),
+      'hallGranite',
+      D.vitrines.length,
+    )
+    const relic = makeInstanced(
+      new THREE.BoxGeometry(0.13, 0.15, 0.13).translate(0, 0.14, 0),
+      'hallRelic',
+      D.vitrines.length,
+    )
+    D.vitrines.forEach((sp, i) => {
+      place(vBase, i, sp.x, sp.y, sp.z)
+      place(glass, i, sp.x, sp.y + 0.06, sp.z)
+      place(relic, i, sp.x, sp.y + 0.06, sp.z, i * 0.7)
+      relic.setColorAt(i, new THREE.Color(RELIC_COLORS[i % RELIC_COLORS.length]))
+      // 罩子 0.42 高 > 玩家步高 0.36 —— 矮于步高的盒子会被当成"能迈过去的路缘"放过去
+      addColliderBox(sp.x, sp.y + 0.06 + vs.h / 2, sp.z, vs.w, vs.h, vs.d, 'vitrine')
+    })
+    glass.instanceMatrix.needsUpdate = true
+    vBase.instanceMatrix.needsUpdate = true
+    relic.instanceMatrix.needsUpdate = true
+    if (relic.instanceColor) relic.instanceColor.needsUpdate = true
+
+    // —— 红绳围挡：金柱一圈 + 两柱之间两段斜绳拼出的下垂弧 ——
+    const R = D.rope
+    const ringTop = (k) => {
+      const a = (k / R.posts) * Math.PI * 2
+      return new THREE.Vector3(R.cx + Math.cos(a) * R.rx, R.y + R.postH, R.cz + Math.sin(a) * R.rz)
+    }
+    const posts = makeInstanced(
+      mergeGeometries([
+        new THREE.CylinderGeometry(0.032, 0.045, R.postH, 8).translate(0, R.postH / 2, 0),
+        new THREE.SphereGeometry(0.055, 8, 6).translate(0, R.postH + 0.02, 0),
+      ]),
+      'gold',
+      R.posts,
+    )
+    for (let i = 0; i < R.posts; i++) {
+      const p = ringTop(i)
+      place(posts, i, p.x, R.y, p.z)
+      addColliderBox(p.x, R.y + R.postH / 2, p.z, 0.12, R.postH, 0.12, 'ropePost')
+    }
+    posts.instanceMatrix.needsUpdate = true
+
+    const segments = []
+    for (let i = 0; i < R.posts; i++) {
+      const p0 = ringTop(i)
+      const p1 = ringTop(i + 1)
+      const mid = p0.clone().add(p1).multiplyScalar(0.5)
+      mid.y -= R.sag
+      segments.push([p0, mid], [mid, p1])
+    }
+    const ropes = makeInstanced(new THREE.CylinderGeometry(0.026, 0.026, 1, 6), 'hallRope', segments.length)
+    segments.forEach(([p0, p1], i) => {
+      const dir = p1.clone().sub(p0)
+      const len = dir.length()
+      qt.setFromUnitVectors(UP, dir.normalize())
+      v3.copy(p0).add(p1).multiplyScalar(0.5)
+      s3.set(1, len, 1)
+      m4.compose(v3, qt, s3)
+      ropes.setMatrixAt(i, m4)
+    })
+    ropes.instanceMatrix.needsUpdate = true
+
+    // 围挡要封成"人进不去"的一圈：椭圆用四条薄 AABB 近似（柱与柱之间还有 1.4m 的缝）
+    const bandY = R.y + 0.5
+    const bandD = 0.1
+    addColliderBox(R.cx, bandY, R.cz + R.rz, R.rx * 2, 1.0, bandD, 'rope')
+    addColliderBox(R.cx, bandY, R.cz - R.rz, R.rx * 2, 1.0, bandD, 'rope')
+    addColliderBox(R.cx - R.rx, bandY, R.cz, bandD, 1.0, R.rz * 2, 'rope')
+    addColliderBox(R.cx + R.rx, bandY, R.cz, bandD, 1.0, R.rz * 2, 'rope')
+
+    // —— 盆栽：台缘一整排 + 四角大株 ——
+    const rowCount = Math.round((D.potRow.x1 - D.potRow.x0) / D.potRow.step) + 1
+    const potSpots = [
+      ...Array.from({ length: rowCount }, (_, i) => ({
+        x: D.potRow.x0 + i * D.potRow.step,
+        y: D.potRow.y,
+        z: D.potRow.z,
+        s: 1,
+      })),
+      ...D.bigPots.map((p) => ({ ...p, s: D.bigPotScale })),
+    ]
+    const pot = makeInstanced(
+      new THREE.CylinderGeometry(0.16, 0.12, 0.26, 8).translate(0, 0.13, 0),
+      'hallPot',
+      potSpots.length,
+    )
+    const shrub = makeInstanced(
+      new THREE.IcosahedronGeometry(0.24, 0).translate(0, 0.46, 0),
+      'hallShrub',
+      potSpots.length,
+    )
+    potSpots.forEach((sp, i) => {
+      place(pot, i, sp.x, sp.y, sp.z, i * 1.1, sp.s)
+      place(shrub, i, sp.x, sp.y, sp.z, i * 0.6, sp.s * (0.9 + (i % 3) * 0.12))
+      shrub.setColorAt(i, new THREE.Color(SHRUB_COLORS[i % SHRUB_COLORS.length]))
+    })
+    pot.instanceMatrix.needsUpdate = true
+    shrub.instanceMatrix.needsUpdate = true
+    if (shrub.instanceColor) shrub.instanceColor.needsUpdate = true
+    // ⚠️ 台缘那一排小盆栽**故意不加碰撞盒**：它们是紧挨着的一整排（间距 1.0、盆宽 0.34，
+    // 只剩 0.66 的缝），加了碰撞就等于在看台上砌了一道墙 —— 而"能一级级走上看台"
+    // 是已经交付的功能（README 写着），不能为这点装饰把它废掉。四角那几株大盆是散开的，
+    // 加碰撞不影响通行。
+    for (const sp of D.bigPots) {
+      const s = D.bigPotScale
+      addColliderBox(sp.x, sp.y + 0.3 * s, sp.z, 0.5 * s, 0.6 * s, 0.5 * s, 'planter')
+    }
   }
 
   /* ================================================================

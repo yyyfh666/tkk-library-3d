@@ -79,7 +79,7 @@ export const HALL_HOTSPOTS = [
     id: 'atrium',
     label: '中庭挑空',
     title: '中庭挑空 · 层叠看台',
-    body: '三层挑空，环廊一圈黑栏杆，廊边垂着绿植；看台一级级升上去，顶上安着那件根雕。',
+    body: '三层挑空，环廊一圈黑栏杆，廊边垂着绿植。南缘的看台一级级升上去，台阶上也摆着一排排小玻璃罩；台缘一溜盆栽，顶上安着那件根雕，四处围着红绳。',
     position: HOTSPOT_ANCHORS.atrium,
   },
   {

@@ -261,6 +261,38 @@ const SPECS = {
   hallCurtain: { color: '#EFECE4' }, // 窗边白纱帘
   hallExhibit: { color: '#EDE6D6' }, // 展板 / 书法条幅
   hallCarving: { color: C.hallCarving }, // 根雕：深木色，不贴图（要的就是团块的剪影感）
+
+  // —— 中庭陈设（照片 04：台阶上的小玻璃罩、台缘一排盆栽、围住展台的红绳）——
+  hallGranitePolish: {
+    color: C.hallGranite, // 看台踏面的抛光石：比 hallGranite 更亮更反光
+    type: 'standard',
+    map: 'granite',
+    bumpMap: 'graniteBump',
+    bumpScale: 0.002,
+    // ⚠️ 数值别贪：hallFloor 那句注释记着"envMap 0.75 / roughness 0.45 时阳光下的
+    // 镜面高光会顶到 255"（曝光探针抓的）。这里取更糙一点、反光更弱一点。
+    roughness: 0.24,
+    envMapIntensity: 0.32,
+  },
+  hallVitrine: {
+    color: '#DCEAF2',
+    nightColor: '#2A3742',
+    type: 'standard',
+    roughness: 0.07,
+    metalness: 0,
+    transparent: true,
+    opacity: 0.2,
+    side: THREE.DoubleSide,
+    envMapIntensity: 0.45, // 玻璃要有反光才像玻璃；罩子很小，不担心整片过曝
+  },
+  hallRope: { color: '#8E2230' }, // 红丝绒隔离绳：绒面不该反光，lambert 正好
+  hallRelic: { color: '#FFFFFF' }, // 玻璃罩里那件"展品"：颜色走 instanceColor，材质必须纯白
+  hallPot: { color: '#D8CBA6' }, // 展台上的浅黄陶盆（照片里一整排就是它）
+  hallShrub: {
+    color: '#FFFFFF', // ⚠️ 必须接近纯白：颜色走 InstancedMesh 的 instanceColor（同书脊的规矩）
+    nightColor: '#39442C',
+    flatShading: true,
+  },
 }
 
 /**
