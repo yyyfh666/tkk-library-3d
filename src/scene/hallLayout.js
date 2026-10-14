@@ -331,6 +331,25 @@ const railSlice = (seg, x0, z0, ux, uz, t0, t1) => [
   seg[4],
 ]
 
+/**
+ * 看台外缘的护栏（北缘一条 + 东西缘各五段，跟着每一级的台面做成阶梯状）。
+ *
+ * ⚠️ 这不是装饰，是**堵漏洞**：看台是 x ±7、z 0.5→5.5 的一块阶梯体，外缘本来就什么都没有 ——
+ * 第一视角从任意一级往北或往两侧多走一步，就掉进中庭那个洞，落到 -4.2 的下层地面，
+ * 而且**再也上不来**（下层是一整块 36×24，没有任何楼梯通上去；walkControls 的兜底要
+ * `pose.y < -6` 才 respawn，-4.2 不触发）。实测：北缘和东缘两个方向都能掉下去。
+ * 实拍照片 04 里看台两侧本来也有一路上去的扶手，所以加护栏既堵了洞又更贴近实景。
+ */
+const terraceRails = () => {
+  const zNorth = AZ - 5 // 0.5，最高一级的北缘
+  const out = [[-7, zNorth, 7, zNorth, 0.22 * 5]] // 北缘：外面就是中庭的洞
+  for (let i = 0; i < 5; i++) {
+    const y = 0.22 * (i + 1)
+    out.push([7, AZ - (i + 1), 7, AZ - i, y], [-7, AZ - (i + 1), -7, AZ - i, y])
+  }
+  return out
+}
+
 export const RAILINGS = [
   atriaRails(HALL.floorY[0], [-7, 7]), // 一层南边留给层叠看台的缺口
   atriaRails(HALL.floorY[1]),
@@ -339,6 +358,7 @@ export const RAILINGS = [
   stairRailsL1(-1),
   stairRailsL2(1),
   stairRailsL2(-1),
+  terraceRails(), // 看台外缘：堵住"从看台掉进中庭"的洞
 ]
   .flat()
   .flatMap(splitRailAtColumns)

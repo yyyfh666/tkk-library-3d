@@ -321,6 +321,102 @@ function drawAtriumFloorColor(ctx, w, h) {
   speckle(ctx, w, h, rnd, { count: 7000, alpha: 0.05 })
 }
 
+/* ------------------------------------------------------------------ *
+ * 粗糙度图（roughnessMap）
+ *
+ * three 的 roughnessMap **只读 G 通道**，而且它是**乘以**材质的标量 roughness 的
+ * （不是替换）。所以这里的画法是：**让"最光滑的地方"乘出来正好等于原来的标量值**，
+ * 其余地方更哑 —— 这样只增加了对比、不会让任何表面比以前更亮，
+ * 也就不会重演"envMap 给多了、阳光下的镜面高光顶到 255"那次事故。
+ * 和 bumpMap 同一条规矩：**必须留 NoColorSpace**（make 的 srgb 传 false）。
+ * ------------------------------------------------------------------ */
+
+/** 地砖：砖面抛光（暗）、砖缝与黑镶边哑光（亮） */
+function drawFloorTileRough(ctx, w, h) {
+  ctx.fillStyle = '#ADADAD' // 砖面 ≈0.68 → ×0.5 = 0.34（= 原来的 roughness）
+  ctx.fillRect(0, 0, w, h)
+  const cell = w / 4
+  ctx.strokeStyle = '#F2F2F2' // 砖缝 ≈0.95：哑
+  ctx.lineWidth = 2
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.moveTo(i * cell, 0)
+    ctx.lineTo(i * cell, h)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(0, i * cell)
+    ctx.lineTo(w, i * cell)
+    ctx.stroke()
+  }
+  // 四周那条黑镶边也是哑的（它是磨砂收边，不是抛光面）
+  const bandW = Math.round((0.12 / 2.4) * w)
+  ctx.fillStyle = '#E2E2E2'
+  ctx.fillRect(0, 0, w, bandW)
+  ctx.fillRect(0, 0, bandW, h)
+}
+
+/** 中庭深色拼花砖：砖面抛光、白圆环是漆上去的（哑）、砖缝哑 */
+function drawAtriumFloorRough(ctx, w, h) {
+  ctx.fillStyle = '#9E9E9E' // ≈0.62 → ×0.42 = 0.26
+  ctx.fillRect(0, 0, w, h)
+  const cell = w / 4
+  ctx.strokeStyle = '#F2F2F2'
+  ctx.lineWidth = 2
+  for (let i = 0; i < 4; i++) {
+    ctx.beginPath()
+    ctx.moveTo(i * cell, 0)
+    ctx.lineTo(i * cell, h)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(0, i * cell)
+    ctx.lineTo(w, i * cell)
+    ctx.stroke()
+  }
+  ctx.strokeStyle = '#EAEAEA'
+  ctx.lineWidth = w * 0.045
+  ctx.beginPath()
+  ctx.arc(w / 2, h / 2, w * 0.3, 0, Math.PI * 2)
+  ctx.stroke()
+  ctx.lineWidth = w * 0.016
+  ctx.beginPath()
+  ctx.arc(w / 2, h / 2, w * 0.41, 0, Math.PI * 2)
+  ctx.stroke()
+}
+
+/** 花岗岩：基面 ≈0.84，石英/云母颗粒比基面更哑 */
+function drawGraniteRough(ctx, w, h) {
+  const rnd = seededRand(20261019)
+  ctx.fillStyle = '#D6D6D6'
+  ctx.fillRect(0, 0, w, h)
+  for (let i = 0; i < 2600; i++) {
+    ctx.fillStyle = rnd() < 0.5 ? 'rgba(255,255,255,0.5)' : 'rgba(150,150,150,0.35)'
+    ctx.fillRect(rnd() * w, rnd() * h, 1.7, 1.7)
+  }
+}
+
+/** 胡桃木：打蜡木面 ≈0.79，木纹沟槽比木面哑 */
+function drawWalnutRough(ctx, w, h) {
+  const rnd = seededRand(20261020)
+  ctx.fillStyle = '#C9C9C9'
+  ctx.fillRect(0, 0, w, h)
+  for (let i = 0; i < 26; i++) {
+    const y = (i / 26) * h
+    ctx.strokeStyle = `rgba(255,255,255,${0.25 + rnd() * 0.4})`
+    ctx.lineWidth = 1 + rnd() * 3
+    ctx.beginPath()
+    ctx.moveTo(0, y)
+    ctx.bezierCurveTo(
+      w * 0.3,
+      y + (rnd() - 0.5) * 18,
+      w * 0.7,
+      y + (rnd() - 0.5) * 18,
+      w,
+      y + (rnd() - 0.5) * 10,
+    )
+    ctx.stroke()
+  }
+}
+
 function drawAtriumFloorBump(ctx, w, h) {
   ctx.fillStyle = '#A0A0A0'
   ctx.fillRect(0, 0, w, h)
@@ -553,8 +649,12 @@ export function createHallTextures({ maxAnisotropy = 4 } = {}) {
     floorTileBump: make(512, 512, drawFloorTileBump, false),
     atriumFloor: make(512, 512, drawAtriumFloorColor),
     atriumFloorBump: make(512, 512, drawAtriumFloorBump, false),
+    atriumFloorRough: make(512, 512, drawAtriumFloorRough, false),
+    floorTileRough: make(512, 512, drawFloorTileRough, false),
     granite: make(256, 256, drawGraniteColor),
     graniteBump: make(256, 256, drawGraniteBump, false),
+    graniteRough: make(256, 256, drawGraniteRough, false),
+    walnutRough: make(512, 512, drawWalnutRough, false),
     ceiling: make(512, 512, drawCeilingColor),
     ceilingBump: make(512, 512, drawCeilingBump, false),
     bookSpine: make(128, 256, drawBookSpine),

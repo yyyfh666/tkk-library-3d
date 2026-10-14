@@ -146,7 +146,8 @@ const SPECS = {
     map: 'walnut',
     bumpMap: 'walnutBump',
     bumpScale: 0.004,
-    roughness: 0.55,
+    roughnessMap: 'walnutRough', // 木纹沟槽比木面哑（0.79×0.7 = 0.55，和原来一样）
+    roughness: 0.7,
     envMapIntensity: 0.35, // 打蜡木面的一点点反射
   },
   hallRailWood: {
@@ -155,7 +156,8 @@ const SPECS = {
     map: 'walnut',
     bumpMap: 'walnutBump',
     bumpScale: 0.003,
-    roughness: 0.5,
+    roughnessMap: 'walnutRough',
+    roughness: 0.63, // 0.76×0.63 ≈ 原来的 0.5
     envMapIntensity: 0.4,
   },
   hallFloor: {
@@ -164,7 +166,8 @@ const SPECS = {
     map: 'floorTile',
     bumpMap: 'floorTileBump',
     bumpScale: 0.0015,
-    roughness: 0.34, // 抛光砖：低粗糙度 + envMap 才有反光
+    roughnessMap: 'floorTileRough', // 砖面抛光、砖缝哑（0.68×0.5 = 0.34，等于原来的标量）
+    roughness: 0.5, // 抛光砖：低粗糙度 + envMap 才有反光
     envMapIntensity: 0.3, // 别贪高：0.75/0.45 时阳光下的镜面高光都会顶到 255（曝光探针抓到的）
   },
   hallFloorDark: {
@@ -174,7 +177,8 @@ const SPECS = {
     map: 'atriumFloor',
     bumpMap: 'atriumFloorBump',
     bumpScale: 0.002,
-    roughness: 0.26,
+    roughnessMap: 'atriumFloorRough', // 砖面抛光、白圈与砖缝哑（0.62×0.42 = 0.26）
+    roughness: 0.42,
     envMapIntensity: 0.35,
   },
   hallGranite: {
@@ -183,7 +187,8 @@ const SPECS = {
     map: 'granite',
     bumpMap: 'graniteBump',
     bumpScale: 0.002,
-    roughness: 0.42,
+    roughnessMap: 'graniteRough', // 石英/云母颗粒比石面哑（0.84×0.5 = 0.42）
+    roughness: 0.5,
     envMapIntensity: 0.25,
   },
   hallStairTread: {
@@ -269,9 +274,10 @@ const SPECS = {
     map: 'granite',
     bumpMap: 'graniteBump',
     bumpScale: 0.002,
+    roughnessMap: 'graniteRough', // 和 hallGranite 共用一张图，靠标量分光哑（0.84×0.286 ≈ 0.24）
     // ⚠️ 数值别贪：hallFloor 那句注释记着"envMap 0.75 / roughness 0.45 时阳光下的
     // 镜面高光会顶到 255"（曝光探针抓的）。这里取更糙一点、反光更弱一点。
-    roughness: 0.24,
+    roughness: 0.286,
     envMapIntensity: 0.32,
   },
   hallVitrine: {
@@ -344,6 +350,10 @@ export function createMaterials({ textures = null, envMap = null } = {}) {
         material.bumpMap = bump
         material.bumpScale = spec.bumpScale ?? 0.01
       }
+      // 粗糙度图：three 只读它的 G 通道，而且是**乘以**上面的标量（不是替换）。
+      // 所以配套的标量要一起调：让"图里最光滑处 × 标量"= 原来那个值，其余更哑。
+      const rough = spec.roughnessMap ? textures?.[spec.roughnessMap] : null
+      if (rough) material.roughnessMap = rough
       // envMap 在材质创建之后才可能就绪（PMREM 需要 renderer），由 attachEnvMap 补挂
       if (envMap && spec.envMapIntensity) {
         material.envMap = envMap

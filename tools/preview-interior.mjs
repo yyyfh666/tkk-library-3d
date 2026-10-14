@@ -528,6 +528,27 @@ console.log(
     : `✘ 围挡没拦住：3s 后到了 z=${ropeStop.z.toFixed(2)}（期望停在 1.6~2.0）`,
 )
 
+// ⑫ 看台外缘护栏 —— **回归红线**：曾经真的能从看台走进中庭的洞里，落到 -4.2 的下层，
+// 而且再也上不来（下层没有楼梯通上去）。三个方向各撞一次，人要稳稳留在台面上。
+const LEDGES = [
+  ['北缘', ['KeyW'], [2.5, 1.0, 0, 0, 1.1], 1.1],
+  ['东缘', ['KeyD'], [5.5, 3.0, 0, 0, 0.66], 0.66],
+  ['西缘', ['KeyA'], [-5.5, 3.0, 0, 0, 0.66], 0.66],
+]
+const ledgeOut = []
+let ledgeOk = true
+for (const [name, keys, setup, expectY] of LEDGES) {
+  const p = await evaluate(`__stage.simulateWalk(${JSON.stringify(keys)}, 2.5, ${JSON.stringify(setup)})`)
+  const held = p.y > expectY - 0.25
+  ledgeOk = ledgeOk && held
+  ledgeOut.push(`${name}${held ? '✔' : '✘'} y=${p.y.toFixed(2)}`)
+}
+console.log(
+  ledgeOk
+    ? `✔ 看台外缘护栏拦得住（不会掉进中庭）：${ledgeOut.join('  ')}`
+    : `✘ 有人掉进中庭了（y 应该留在台面高度）：${ledgeOut.join('  ')}`,
+)
+
 // 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
 await evaluate(`__stage.commandRobot(null)`)
 await evaluate(`__stage.simulateRobot(20)`)
