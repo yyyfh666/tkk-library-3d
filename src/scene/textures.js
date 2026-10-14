@@ -290,6 +290,54 @@ function drawFloorTileBump(ctx, w, h) {
 }
 
 /**
+ * 灌木丛：直立的一丛叶子（给"十字面片"绿植用）。
+ *
+ * 为什么要有这张、而不是继续用 `IcosahedronGeometry`：多面体球一眼就是"假植物"
+ * （截图里那些绿色多面球）。正解是**两片交叉的 alpha 面片**贴一张镂空叶子图 ——
+ * 同一套做法在垂吊藤蔓上已经用了很久（`drawLeaf`），只是那棵是**藤**、这棵是**丛**。
+ */
+function drawBush(ctx, w, h) {
+  const rnd = seededRand(20261025)
+  const base = hexToRgb(C.hallLeaf)
+  ctx.clearRect(0, 0, w, h)
+
+  // 后层：暗一档的叶子，铺出体积感
+  for (let i = 0; i < 26; i++) {
+    ctx.save()
+    ctx.translate(w * 0.5 + (rnd() - 0.5) * w * 0.62, h * (0.4 + rnd() * 0.52))
+    ctx.rotate(rnd() * Math.PI * 2)
+    ctx.fillStyle = rgbStr(shade(base, 0.62), 0.95)
+    ctx.beginPath()
+    ctx.ellipse(0, 0, w * (0.05 + rnd() * 0.05), h * (0.09 + rnd() * 0.07), 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+  // 前层：亮一档、更密，往中间收（冠幅中间厚）
+  for (let i = 0; i < 48; i++) {
+    const t = rnd()
+    ctx.save()
+    ctx.translate(w * 0.5 + (rnd() - 0.5) * w * (0.36 + t * 0.48), h * (0.28 + rnd() * 0.6))
+    ctx.rotate(rnd() * Math.PI * 2)
+    ctx.fillStyle = rgbStr(jitter(base, rnd, { l: 0.26, w: 0.12 }), 0.95)
+    ctx.beginPath()
+    ctx.ellipse(0, 0, w * (0.045 + rnd() * 0.05), h * (0.075 + rnd() * 0.06), 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+  // 底部收口：几片压在下沿，让丛跟花盆接得上
+  for (let i = 0; i < 12; i++) {
+    ctx.save()
+    ctx.translate(w * (0.18 + rnd() * 0.64), h * (0.86 + rnd() * 0.1))
+    ctx.rotate((rnd() - 0.5) * 1.2)
+    ctx.fillStyle = rgbStr(shade(base, 0.7), 0.95)
+    ctx.beginPath()
+    ctx.ellipse(0, 0, w * 0.058, h * 0.05, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
+/**
  * 北墙展区的**竖排挂轴图集**：一张贴图装 6 幅。
  *
  * 为什么是图集、而不是 6 张贴图或 6 个 mesh：要"每幅字画不一样"，**InstancedMesh 做不到**
@@ -764,6 +812,7 @@ export function createHallTextures({ maxAnisotropy = 4 } = {}) {
     ceilingBump: make(512, 512, drawCeilingBump, false),
     bookSpine: make(128, 256, drawBookSpine),
     leaf: make(256, 512, drawLeaf),
+    bush: make(512, 512, drawBush),
     backdrop: make(512, 256, drawBackdrop),
     scrollAtlas: make(2304, 1152, drawScrollAtlas, true, true), // 图集：必须夹边
     fluteBump: make(256, 256, drawFluteBump, false),

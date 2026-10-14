@@ -103,7 +103,12 @@ const BOOK_COLORS = ['#C4573A', '#4E6E8C', '#D9A441', '#6E9E55', '#7A5A8C', '#3F
 /** 玻璃罩里那件"展品"的颜色（示意：不是真展品，就是几块上色的小方块） */
 const RELIC_COLORS = ['#D9A441', '#C4573A', '#6E9E55', '#4E6E8C', '#8C7A9E', '#B5762F']
 /** 展台灌木的深浅（走 instanceColor，所以 hallShrub 材质本身必须接近纯白） */
-const SHRUB_COLORS = ['#6E9E55', '#7FB264', '#5E8A4A', '#86B06A']
+/**
+ * 展台灌木的深浅（走 instanceColor，材质本身必须接近纯白）。
+ * ⚠️ 这里**只能是接近白的浅色调，不能是绿**：绿色已经在 `bush` 贴图里了，
+ * 而 instanceColor 是**乘**上去的 —— 再乘一层绿会变成发黑的墨绿。
+ */
+const SHRUB_COLORS = ['#FFFFFF', '#F1F7EA', '#E2EEDA', '#FBF4E8']
 
 export function buildHall(materials) {
   const group = new THREE.Group()
@@ -538,6 +543,19 @@ export function buildHall(materials) {
     mesh.setMatrixAt(i, iMat4)
   }
 
+  /**
+   * 十字面片：两片互相垂直的平面合成一个几何，**原点在底边中点**（方便直接坐在花盆上）。
+   * 这是"用面片代替多边形"的标准做法 —— 两片各自 DoubleSide，从任何水平角度看都有叶子，
+   * 而顶点数只有多面体球的零头。配合 `hallShrub` 的镂空贴图 + alphaTest 用。
+   */
+  const crossPlanes = (size) => {
+    const half = size / 2
+    return mergeGeometries([
+      new THREE.PlaneGeometry(size, size).translate(0, half, 0),
+      new THREE.PlaneGeometry(size, size).rotateY(Math.PI / 2).translate(0, half, 0),
+    ])
+  }
+
   /* ================================================================
    * 5b. 中庭陈设（照片 04）：台阶上的小玻璃罩、台缘的盆栽带、围住展台的红绳
    *
@@ -645,7 +663,7 @@ export function buildHall(materials) {
       potSpots.length,
     )
     const shrub = makeInstanced(
-      new THREE.IcosahedronGeometry(0.24, 0).translate(0, 0.46, 0),
+      crossPlanes(0.66).translate(0, 0.26, 0), // 两片交叉的镂空面片，坐在盆口上（盆高 0.26）
       'hallShrub',
       potSpots.length,
     )
@@ -975,12 +993,13 @@ export function buildHall(materials) {
     const pot = new THREE.CylinderGeometry(0.34, 0.26, 0.5, 10)
     pot.translate(x, 0.25, z)
     addGeo('wood', pot)
-    const bush = new THREE.IcosahedronGeometry(0.55, 0)
-    bush.translate(x, 1.0, z)
-    addGeo('leaf', bush)
-    const bush2 = new THREE.IcosahedronGeometry(0.38, 0)
-    bush2.translate(x + 0.25, 1.45, z - 0.15)
-    addGeo('leafLight', bush2)
+    // 灌木：两片交叉的镂空面片（以前是多面体球 —— 一眼假）
+    const bushA = crossPlanes(1.3)
+    bushA.translate(x, 0.44, z)
+    addGeo('hallShrub', bushA)
+    const bushB = crossPlanes(0.9)
+    bushB.translate(x + 0.28, 1.15, z - 0.16)
+    addGeo('hallShrub', bushB)
     addColliderBox(x, 0.6, z, 0.8, 1.2, 0.8, 'planter')
   }
 

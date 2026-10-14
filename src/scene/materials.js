@@ -306,9 +306,14 @@ const SPECS = {
   hallSofaCushion: { color: '#B04E42' }, // 坐垫比沙发体亮一档，不然整只是块红砖
   hallPot: { color: '#D8CBA6' }, // 展台上的浅黄陶盆（照片里一整排就是它）
   hallShrub: {
-    color: '#FFFFFF', // ⚠️ 必须接近纯白：颜色走 InstancedMesh 的 instanceColor（同书脊的规矩）
+    // ⚠️ 必须接近纯白：颜色走 InstancedMesh 的 instanceColor（同书脊的规矩）
+    color: '#FFFFFF',
     nightColor: '#39442C',
-    flatShading: true,
+    map: 'bush', // 一丛叶子的镂空贴图（十字面片用）
+    alphaTest: 0.5, // 透明背景直接裁掉 —— 这就是"面片代替多边形"的关键
+    side: THREE.DoubleSide,
+    // 注：原来还有 flatShading: true（那是给多面体球用的），换成平面后没意义了
+    // 不给 envMap：叶子不该反光（也不该在洗墙光下泛白）
   },
 }
 

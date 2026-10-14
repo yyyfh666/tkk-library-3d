@@ -430,7 +430,7 @@ export function shelfStandPoint(shelf) {
 /** 机器人的固定兴趣点（POI） */
 export const ROBOT_POIS = {
   cruise: { label: '中庭巡航' },
-  checkin: { label: '中庭前 · 打卡点', point: [0, 7.4] },
+  checkin: { label: '中庭前 · 打卡点', point: [0, AZ + 1.9] }, // 正好落在巡航环的南直边上
   desk: { label: '借还服务台', point: [15.0, 1.1] },
   exhibit: { label: '展览区 · 全息投影', point: [0, -8.0] },
 }
@@ -584,9 +584,14 @@ export const HOTSPOT_ANCHORS = {
 }
 
 /** 机器人的巡航路径：围着中庭的圆角矩形，采样成折线（按弧长参数化，首尾相接） */
-export function buildRobotPath({ offset = 2.6, cornerRadius = 3.2, samples = 160 } = {}) {
-  const hx = AX + offset // 圆角矩形半宽（到直边的距离）
-  const hz = AZ + offset
+export function buildRobotPath({ offsetX = 2.6, offsetZ = 1.9, cornerRadius = 3.2, samples = 160 } = {}) {
+  // ⚠️ x / z 两个方向的退让距离是**分开**的，别合回一个 offset：
+  // 南直边原来在 z = AZ + 2.6 = 8.1，而阅览桌北侧那排椅子的碰撞盒在 z = 8.2~8.7 ——
+  // 半径 0.42 的机器人一蹭上就被碰撞解算推回来，而路径又把它往回拉，**互相顶住、永远停在那**
+  // （这是个从 P2 就有的隐藏 bug，直到这一轮加了"机器人坐标在不在动"的断言才抓到）。
+  // z 方向收到 1.9 就绕开了椅子；x 方向仍留 2.6（东西两侧没有这么近的东西）。
+  const hx = AX + offsetX // 圆角矩形半宽（到直边的距离）
+  const hz = AZ + offsetZ
   const r = cornerRadius
 
   // 一圈顺序：南直边 → 东南弧 → 东直边 → 东北弧 → 北直边 → 西北弧 → 西直边 → 西南弧

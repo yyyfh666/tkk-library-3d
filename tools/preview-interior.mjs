@@ -240,6 +240,34 @@ console.log(
     : '✘ A* 找不到路径',
 )
 
+// ①b 机器人"坐标确实在动" + 能派去借还服务台（队友点名要确认的两条）
+const rb0 = await evaluate(`__stage.robotState()`)
+await evaluate(`__stage.simulateRobot(1.5)`)
+const rb1 = await evaluate(`__stage.robotState()`)
+const rbMoved = Math.hypot(rb1.x - rb0.x, rb1.z - rb0.z)
+console.log(
+  rbMoved > 0.3
+    ? `✔ 机器人坐标确实在动：巡航 1.5s 挪了 ${rbMoved.toFixed(2)}m`
+    : `✘ 机器人没动：1.5s 只挪了 ${rbMoved.toFixed(2)}m`,
+)
+// 派去借还服务台（ROBOT_POIS.desk = [15.0, 1.1]，在服务台北侧的空地上）。
+// 用"一步一步推到到达"而不是推固定秒数：到达后会 idle 6 秒再回巡航，推太久反而测不到。
+await evaluate(`__stage.commandRobot([15.0, 1.1], '前往借还服务台')`)
+const atDesk = await evaluate(`(() => {
+  for (let i = 0; i < 60; i++) {
+    __stage.simulateRobot(1)
+    const s = __stage.robotState()
+    if (s.mode === 'idle') return s
+  }
+  return __stage.robotState()
+})()`)
+const deskDist = Math.hypot(atDesk.x - 15.0, atDesk.z - 1.1)
+console.log(
+  deskDist < 1.6
+    ? `✔ 能派到借还服务台：停在 (${atDesk.x.toFixed(2)}, ${atDesk.z.toFixed(2)})，离目标 ${deskDist.toFixed(2)}m`
+    : `✘ 没到服务台：停在 (${atDesk.x.toFixed(2)}, ${atDesk.z.toFixed(2)})，离目标 ${deskDist.toFixed(2)}m`,
+)
+
 // ② 找书：填搜索框 → 点第一条结果 → 60Hz 推进到机器人到达 → 看书卡
 await evaluate(`(() => {
   const input = document.querySelector('.hud-search__input')
@@ -564,6 +592,87 @@ await evaluate(`__stage.setWalkPose(0, 8.2, 0, -0.2, 0)`)
 await pump(2)
 await sleep(300)
 await shoot('interior-33-red-carpet')
+
+/* ==================================================================
+ * ⑭ 曝光体检：7 个机位各采一次（回应队友那句"画面过曝偏色"）
+ * 以前只在"入口内一步"这一个机位测过 —— 一个机位证明不了整场不过曝。
+ *
+ * ⚠️ **必须用 setWalkPose，不能用 setCamera**：非第一视角下**吊顶是隐藏的**
+ * （娃娃屋要能看进屋里），镜头往上一抬采到的就是页面底色（米白 ~240）——
+ * 第一版用 setCamera 做，6 个机位里 4 个"过曝"，全是假报警。
+ * 采样是 8×5=40 点的**网格采样**，不是全画面统计；判据沿用"形态"那套：
+ * 过曝点（亮度 >250）超过 2 个、或平均亮度越界、或有死黑，才算问题。
+ * ================================================================== */
+console.log('\n曝光体检（7 个机位 × 40 点网格采样，第一视角）')
+// 俯视总览先测、并且**放在进第一视角之前**：它是 gotoView('dollhouse') 起的补间，
+// 若放在第一视角之后测，补间会在后面几帧继续飞相机、把最后那条基线探针搅掉
+// （第一版就是这么把基线探针的平均亮度从 111 搅成 210 的）。
+const topPx = await evaluate(`(() => {
+  __stage.app.worlds.hall.gotoView('dollhouse')
+  __stage.setCamera({ pos: [0.01, 64, 0], target: [0, 0, 0], fov: 40 })
+  return __stage.probe(8, 5)
+})()`)
+
+const AUDIT = `[
+  ['入口内一步', [0, 8.6, 0, 0, 0]],
+  ['中庭抬头看天窗', [0, 7.4, 0, 0.8, 0]],
+  ['正对北墙卷轴墙', [0, -6.4, 0, 0.12, 0]],
+  ['西窗白墙', [-15.0, 8.6, 1.5708, 0, 0]],
+  ['看台上低头看展柜', [1.03, 5.2, 0, -0.25, 0]],
+]`
+const auditDay = await evaluate(`(() => {
+  return ${AUDIT}.map(([name, pose]) => {
+    __stage.setWalkPose(...pose)
+    return { name, px: __stage.probe(8, 5) }
+  })
+})()`)
+const stats = (px) => {
+  const lum = px.map(([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b)
+  return {
+    max: Math.max(...lum),
+    mean: lum.reduce((a, b) => a + b, 0) / lum.length,
+    hot: lum.filter((v) => v > 250).length,
+    dark: lum.filter((v) => v < 16).length,
+  }
+}
+// 判据里"死黑"取 `> 2` 而不是 `> 0`：黑钢栏杆、深色木雕本来就压在这个阈值以下，
+// 一个两个点很正常；真出事（整屏发黑）会是 40 个点全黑，照样抓得到。
+let auditBad = 0
+for (const row of auditDay) {
+  const s = stats(row.px)
+  const ok = s.hot <= 2 && s.mean > 25 && s.mean < 200 && s.dark <= 2
+  if (!ok) auditBad++
+  console.log(
+    `  ${ok ? '✔' : '⚠️'} 白天·${row.name}：max ${s.max.toFixed(0)} / 平均 ${s.mean.toFixed(0)} / 过曝 ${s.hot} / 死黑 ${s.dark}`,
+  )
+}
+// 夜里再来一次（灯池 4 盏点光全开 + 灯带自发光，另一套曝光条件）
+await evaluate(`__stage.app.setPhaseTarget(1)`)
+await sleep(5200) // 相位过渡在 1~2fps 下要好几秒
+const auditNight = await evaluate(`(() => {
+  __stage.setWalkPose(0, 8.6, 0, 0, 0)
+  return __stage.probe(8, 5)
+})()`)
+const ns = stats(auditNight)
+const nightOk = ns.hot <= 2 && ns.mean > 25 && ns.mean < 200 && ns.dark <= 2
+if (!nightOk) auditBad++
+console.log(
+  `  ${nightOk ? '✔' : '⚠️'} 夜里·入口内一步：max ${ns.max.toFixed(0)} / 平均 ${ns.mean.toFixed(0)} / 过曝 ${ns.hot} / 死黑 ${ns.dark}`,
+)
+console.log(
+  auditBad === 0
+    ? `✔ 曝光体检：7 个机位都没有整片死白 / 死黑（采样 40 点/机位，不是全画面统计）`
+    : `⚠️ 曝光体检：${auditBad} 个机位越界，去上面那几行看是哪个 ————`,
+)
+// 俯视总览单独说明：它是**按设计切开看**的（吊顶/外景组隐藏），画面上半部就是页面底色，
+// 不参与上面的判据 —— 但数字还是打出来，免得下次有人当问题报。
+const ts = stats(topPx)
+console.log(
+  `  ℹ 俯视总览（按设计切开看，画面上半是页面底色）：max ${ts.max.toFixed(0)} / 平均 ${ts.mean.toFixed(0)} / 过曝 ${ts.hot}`,
+)
+await evaluate(`__stage.app.setPhaseTarget(0)`)
+await sleep(2600) // 回白天，别影响后面几步
+await shoot('interior-34-exposure-audit-view')
 
 // 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
 await evaluate(`__stage.commandRobot(null)`)

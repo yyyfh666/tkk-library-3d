@@ -391,10 +391,12 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
 
   // React → 引擎：store 里塞一条带 nonce 的命令，这里消费掉（同一命令按两次也会重发）
   let lastCommandNonce = 0
+  let lastCommand = null // 留给下面的"卡住兜底"重发用
   const unsubscribeStore = useHallStore.subscribe((state) => {
     const cmd = state.robotCommand
     if (cmd && cmd.nonce !== lastCommandNonce) {
       lastCommandNonce = cmd.nonce
+      lastCommand = { point: cmd.point, label: cmd.label, payload: cmd.payload }
       agent.command(cmd)
     }
     // 幕布那一页：书名/页号真变了才重画（zustand 每次 set() 都会通知，得自己判）
@@ -420,6 +422,40 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       if (!lastHoloMuted && holoCinematic) speech.say(getHoloChapter(state.holo.chapterId))
     }
   })
+
+  /**
+   * 机器人卡住的兜底。
+   * 演示里"机器人定住不动"是最难看的故障：根因（巡航环的南直边压在阅览椅的碰撞盒上，
+   * 碰撞把它推回来、路径又把它拉回去，互相顶住）已经在 `hallLayout.buildRobotPath`
+   * 里把 z 方向收到 1.9 修掉了；这里是第二道保险 —— 位置连续 1.5 秒没挪窝、但速度还在，
+   * 就把上一条命令原样重发一次（goto）或者回环线（巡航）。
+   * 说明：**没写进 robotAgent.js**，因为那个文件里有别人未提交的改动，不动它更干净。
+   */
+  let stallT = 0
+  const lastRobot = { x: 0, z: 0, primed: false }
+  const checkRobotStall = (dt) => {
+    const s = agent.getState()
+    if (!lastRobot.primed) {
+      lastRobot.x = s.x
+      lastRobot.z = s.z
+      lastRobot.primed = true
+      return
+    }
+    const moved = Math.hypot(s.x - lastRobot.x, s.z - lastRobot.z)
+    lastRobot.x = s.x
+    lastRobot.z = s.z
+    if (s.speed > 0.15 && moved < 0.004) {
+      stallT += dt
+      if (stallT > 1.5) {
+        stallT = 0
+        console.warn('[robot] 卡住了，重新规划：', s.mode, s.x.toFixed(2), s.z.toFixed(2))
+        if (s.mode === 'goto' && lastCommand?.point) agent.command(lastCommand)
+        else agent.command({})
+      }
+    } else {
+      stallT = 0
+    }
+  }
 
   /* ------------------------------------------------------------------ *
    * 全息演出的进出场（场景三）
@@ -626,6 +662,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     },
     update(elapsed, dt) {
       agent.update(dt) // 巡航环线 / A* 路径的路点跟随（寻路本身只在收到命令时跑一次）
+      checkRobotStall(dt)
       screens.tick(dt)
       burst.update(dt)
       hologram.update(elapsed, dt)
