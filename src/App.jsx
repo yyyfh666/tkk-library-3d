@@ -4,7 +4,7 @@ import { ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './scene/hotspots.js'
 import IntroPanel from './ui/IntroPanel.jsx'
 import HotspotChips from './ui/HotspotChips.jsx'
 import InfoCard from './ui/InfoCard.jsx'
-import { HallGuide, BookCard, HoloStory, VrReading, CheckinToast } from './ui/HallHUD.jsx'
+import { HallGuide, BookCard, HoloStory, HoloTheatre, VrReading, CheckinToast } from './ui/HallHUD.jsx'
 import { useHallStore } from './state/store.js'
 import { SceneControls, Hint } from './ui/Controls.jsx'
 
@@ -20,6 +20,8 @@ export default function App() {
   const [ready, setReady] = useState(false) // world 建好之前"走进大厅"要禁用
   const [walk, setWalk] = useState({ active: false, locked: false }) // 第一视角状态
   const [walkHover, setWalkHover] = useState(null) // 准星指着哪个热点
+  // 全息"演出态"：藏掉常规漫游 UI，换成黑边 + 字幕 + 时间轴
+  const cinematic = useHallStore((s) => s.holo.cinematic)
 
   useEffect(() => {
     const world = createAppWorld({
@@ -29,7 +31,14 @@ export default function App() {
         setSelected(hotspot)
         worldRef.current?.worlds.island.focusOn(hotspot.position)
       },
-      onWalkChange: (state) => setWalk(state),
+      onWalkChange: (state) => {
+        setWalk(state)
+        // 演出中丢了指针锁 = 观众按了 Esc（浏览器锁定时 Esc 不派发给页面，只会解锁）。
+        // 必须当成"退出观看"，否则下一帧又会被判定成该进演出，来回抽搐。
+        if (!state.locked && useHallStore.getState().holo.cinematic) {
+          worldRef.current?.worlds.hall.exitHolo()
+        }
+      },
       onWalkHover: (config) => setWalkHover(config),
     })
     worldRef.current = world
@@ -62,10 +71,21 @@ export default function App() {
   }, [isNight])
 
   // 第一视角：E 查看准星指着的东西、←/→ 翻幕布那一页
-  // （指针锁定时鼠标点不到右栏的按钮，所以这两组键是必需的）
+  // （指针锁定时鼠标点不到右栏的按钮，所以这几组键是必需的）
   useEffect(() => {
     const onKeyDown = (event) => {
       if (!walk.active) return
+      const store = useHallStore.getState()
+      // 演出态优先：Esc 退场、←/→ 翻章节，其余键一概不响应（沉浸）
+      if (store.holo.cinematic) {
+        if (event.code === 'Escape') {
+          worldRef.current?.worlds.hall.exitHolo()
+        } else if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+          event.preventDefault()
+          store.stepHoloChapter(event.code === 'ArrowRight' ? 1 : -1)
+        }
+        return
+      }
       if (event.code === 'KeyE') {
         const config = worldRef.current?.worlds.hall.pickHotspot()
         if (!config) return
@@ -73,7 +93,6 @@ export default function App() {
         setSelected(config)
         return
       }
-      const store = useHallStore.getState()
       if (!store.vr.active) return
       if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
         event.preventDefault() // 别让方向键滚页面
@@ -157,9 +176,8 @@ export default function App() {
         {isNight ? '昼 · 日光漫游' : '夜 · 馆灯初上'}
       </button>
 
-      {isIsland ? (
-        <IntroPanel onEnterHall={enterHall} canEnterHall={canEnterHall} />
-      ) : (
+      {!cinematic && isIsland && <IntroPanel onEnterHall={enterHall} canEnterHall={canEnterHall} />}
+      {!cinematic && !isIsland && (
         <div className="hall-title">
           <p className="hall-title__eyebrow">THIRD FLOOR · READING HALL</p>
           <h1 className="hall-title__title">三楼大厅</h1>
@@ -167,38 +185,49 @@ export default function App() {
         </div>
       )}
 
-      <HotspotChips
-        hotspots={isIsland ? ISLAND_HOTSPOTS : HALL_HOTSPOTS}
-        activeId={selected?.id}
-        onSelect={selectHotspot}
-      />
-      <Hint walk={walk.active} />
+      {/* 演出态：常规漫游的三件套（胶囊条 / 提示条 / 控制键）连同准星一起收掉 */}
+      {!cinematic && (
+        <HotspotChips
+          hotspots={isIsland ? ISLAND_HOTSPOTS : HALL_HOTSPOTS}
+          activeId={selected?.id}
+          onSelect={selectHotspot}
+        />
+      )}
+      {!cinematic && <Hint walk={walk.active} />}
 
       {/* 第一视角：准星 + 准星旁的提示 + 未锁定时"点击画面继续" */}
-      {walk.active && <div className={walkHover ? 'crosshair crosshair--hot' : 'crosshair'} aria-hidden="true" />}
-      {walk.active && walkHover && !selected && <p className="walk-prompt">{walkHover.label} · 按 E 查看</p>}
-      {walk.active && !walk.locked && (
+      {walk.active && !cinematic && (
+        <div className={walkHover ? 'crosshair crosshair--hot' : 'crosshair'} aria-hidden="true" />
+      )}
+      {walk.active && !cinematic && walkHover && !selected && (
+        <p className="walk-prompt">{walkHover.label} · 按 E 查看</p>
+      )}
+      {walk.active && !cinematic && !walk.locked && (
         <p className="walk-overlay">点击画面继续漫游 · WASD 移动 · Esc 退出</p>
       )}
 
-      <SceneControls
-        scene={scene}
-        playing={playing}
-        walking={walk.active}
-        onTogglePlay={() => setPlaying((v) => !v)}
-        onEnterHall={enterHall}
-        canEnterHall={canEnterHall}
-        onExitHall={exitHall}
-        onToggleView={toggleHallView}
-        onEnterWalk={enterWalk}
-        onExitWalk={exitWalk}
-        onReset={isIsland ? resetView : resetHallView}
-      />
+      {cinematic && <HoloTheatre onExit={() => worldRef.current?.worlds.hall.exitHolo()} />}
 
-      <CheckinToast />
+      {!cinematic && (
+        <SceneControls
+          scene={scene}
+          playing={playing}
+          walking={walk.active}
+          onTogglePlay={() => setPlaying((v) => !v)}
+          onEnterHall={enterHall}
+          canEnterHall={canEnterHall}
+          onExitHall={exitHall}
+          onToggleView={toggleHallView}
+          onEnterWalk={enterWalk}
+          onExitWalk={exitWalk}
+          onReset={isIsland ? resetView : resetHallView}
+        />
+      )}
+
+      {!cinematic && <CheckinToast />}
 
       {/* 大厅的右栏：导览台常驻，书卡 / 全息故事 / 热点信息卡按需插进同一列（各占一行，不打架） */}
-      {isIsland ? (
+      {cinematic ? null : isIsland ? (
         <InfoCard hotspot={selected} onClose={() => setSelected(null)} onEnterHall={enterHall} />
       ) : (
         <div className="hall-rail">

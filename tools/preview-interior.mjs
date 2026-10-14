@@ -290,25 +290,109 @@ console.log(
 )
 await shoot('interior-22-checkin')
 
-// ④ 全息投影：走过去触发 + 故事卡出现
-await evaluate(`__stage.setWalkPose(0, -8.2, 0, 0, 0)`)
+// ④ 全息演出：走进触发圈 → 投影从虚到实，同时进入"观看态"（常规漫游 UI 整层不渲染）
+await evaluate(`__stage.setWalkPose(0, -6.6, 0, 0.06, 0)`)
 let holo = null
-for (let i = 0; i < 14 && !holo?.near; i++) {
-  await sleep(400)
-  holo = await evaluate(`(() => ({ ...__stage.hologramState(), dom: !!document.querySelector('.hud-card--holo') }))()`)
+for (let i = 0; i < 16 && !(holo?.cinematic && holo.fade > 0.9); i++) {
+  await pump()
+  await sleep(220)
+  holo = await evaluate(`(() => ({
+    ...__stage.hologramState(),
+    theatre: !!document.querySelector('.cinema__line'),
+    nodes: document.querySelectorAll('.holo-node').length,
+    chips: !!document.querySelector('.chips'),
+    controls: !!document.querySelector('.scene-controls'),
+    caption: (document.querySelector('.cinema__line')?.textContent ?? '').slice(0, 20),
+  }))()`)
 }
 console.log(
-  holo?.near && holo.dom
-    ? `✔ 全息投影：走近触发（fade ${holo.fade.toFixed(2)}），陈嘉庚故事卡已弹出`
-    : `✘ 全息没触发：near=${holo?.near} fade=${holo?.fade} dom=${holo?.dom}`,
+  holo?.cinematic && holo.fade > 0.9
+    ? `✔ 全息演出：走到 ${holo.distance}m 触发（fade ${holo.fade.toFixed(2)}，章节 ${holo.chapterId}），黑边+字幕+${holo.nodes} 个时间轴节点都在`
+    : `✘ 演出没进：cinematic=${holo?.cinematic} fade=${holo?.fade} distance=${holo?.distance}`,
 )
-await pump(3) // 淡入是指数逼近，得真走几帧才有数字
-await sleep(400)
-holo = await evaluate(`(() => ({ ...__stage.hologramState(), dom: !!document.querySelector('.hud-card--holo') }))()`)
-console.log(`  （淡入进度 fade=${holo.fade.toFixed(2)}，1 = 全亮）`)
-await shoot('interior-23-hologram')
+console.log(
+  !holo.chips && !holo.controls
+    ? '✔ 观看态：常规漫游 UI 已收掉（胶囊条 / 控制键都不在 DOM）'
+    : `✘ 漫游 UI 还在：chips=${holo.chips} controls=${holo.controls}`,
+)
+console.log(`  字幕：${holo.caption}…`)
+await shoot('interior-29-holo-show')
 
-// ⑤ 书目拾取：第一视角盯着书脊 → 书架屏翻到那本书（DOM 侧给出书名）
+// ⑤ 点时间轴第 3 个节点 → 换章：贴图重画 + 字幕/名言跟着换
+const holoBefore = await evaluate(`(() => {
+  const h = __stage.hologramState()
+  return { chapter: h.chapterId, redraws: h.redraws }
+})()`)
+await evaluate(`document.querySelectorAll('.holo-node')[2].click()`)
+await pump(2)
+await sleep(300)
+const holoAfter = await evaluate(`(() => {
+  const h = __stage.hologramState()
+  return {
+    chapter: h.chapterId,
+    redraws: h.redraws,
+    store: __stage.hallState().holo.chapterId,
+    caption: (document.querySelector('.cinema__line')?.textContent ?? '').slice(0, 20),
+    quote: document.querySelector('.cinema__quote')?.textContent ?? '',
+  }
+})()`)
+console.log(
+  holoAfter.chapter === holoAfter.store && holoAfter.chapter !== holoBefore.chapter && holoAfter.redraws > holoBefore.redraws
+    ? `✔ 时间轴换章：${holoBefore.chapter} → ${holoAfter.chapter}（贴图重画 ${holoBefore.redraws} → ${holoAfter.redraws}），字幕也换了`
+    : `✘ 换章没生效：store=${holoAfter.store} 引擎=${holoAfter.chapter} redraws ${holoBefore.redraws}→${holoAfter.redraws}`,
+)
+console.log(`  名言：${holoAfter.quote}`)
+await shoot('interior-30-holo-chapter3')
+
+// ⑥ 旁白防重叠：开声，快速连点四个节点 —— 每条互不相同，且每次都"先掐后念"
+await evaluate(`__stage.hallState().toggleHoloMuted()`)
+const speechBefore = await evaluate(`__stage.speechLog().cancels`)
+await evaluate(`(() => {
+  const nodes = [...document.querySelectorAll('.holo-node')]
+  nodes[0].click(); nodes[4].click(); nodes[2].click(); nodes[1].click()
+  return true
+})()`)
+await pump(1)
+const speech = await evaluate(`__stage.speechLog()`)
+const spokeIds = speech.log.slice(-4).map((e) => e.id)
+console.log(
+  spokeIds.length === 4 && new Set(spokeIds).size === 4 && speech.cancels - speechBefore >= 4
+    ? `✔ 旁白防重叠：连点 4 个节点 → 4 条互不相同的旁白（${spokeIds.join(' ')}），"先掐后念"执行了 ${speech.cancels - speechBefore} 次`
+    : `✘ 旁白有重叠/漏发：${JSON.stringify(spokeIds)}，掐断 ${speech.cancels - speechBefore} 次`,
+)
+console.log(`  语音 provider：${speech.provider}（可用=${speech.available}）—— 浏览器 TTS，不是本人原声`)
+
+// ⑦ Esc 退出观看：字幕黑边收掉、漫游 UI 回来、走路恢复
+await evaluate(`window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }))`)
+await pump(2)
+await sleep(300)
+const exited = await evaluate(`(() => {
+  const h = __stage.hologramState()
+  return {
+    cinematic: h.cinematic,
+    near: h.near,
+    theatre: !!document.querySelector('.cinema__line'),
+    chips: !!document.querySelector('.chips'),
+    controls: !!document.querySelector('.scene-controls'),
+  }
+})()`)
+console.log(
+  !exited.cinematic && !exited.theatre && exited.chips && exited.controls
+    ? `✔ Esc 退出观看：黑边字幕收掉、漫游 UI 回来；投影还亮着（人${exited.near ? '仍在触发圈内' : '已在圈外'}）`
+    : `✘ 没退出干净：cinematic=${exited.cinematic} theatre=${exited.theatre} chips=${exited.chips} controls=${exited.controls}`,
+)
+const moved = await evaluate(`(() => {
+  const z0 = __stage.app.worlds.hall.walker.getPose().z
+  const p = __stage.simulateWalk(['KeyW'], 0.8, [0, -6.6, 0, 0, 0])
+  return { z0, z1: p.z, locked: __stage.app.worlds.hall.walker.moveLocked, cinematic: __stage.hologramState().cinematic }
+})()`)
+console.log(
+  Math.abs(moved.z1 - moved.z0) > 0.2 && !moved.locked && !moved.cinematic
+    ? `✔ 走路已恢复：z ${moved.z0.toFixed(2)} → ${moved.z1.toFixed(2)}（没被重新拉回演出）`
+    : `✘ 走路没恢复：z ${moved.z0.toFixed(2)} → ${moved.z1.toFixed(2)} moveLocked=${moved.locked} cinematic=${moved.cinematic}`,
+)
+
+// ⑧ 书目拾取：第一视角盯着书脊 → 书架屏翻到那本书（DOM 侧给出书名）
 // 书在层板上一排排摞着，层与层之间是有空隙的 —— 俯仰角差一点就打空，所以给几个候选机位。
 const BOOK_POSES = [
   [12.0, 8.9, -1.5708, -0.3, 0],
@@ -336,13 +420,13 @@ console.log(
 )
 await shoot('interior-24-book-pick')
 
-// ⑥ 书架信息屏：正脸看 S04 那块屏（书名是第 ② 步找书"钉"住的那本，悬停移开也不会掉）
+// ⑨ 书架信息屏：正脸看 S04 那块屏（书名是第 ② 步找书"钉"住的那本，悬停移开也不会掉）
 await evaluate(`__stage.setWalkPose(2.65, -6.55, -0.384, 0.06, 0)`)
 await pump(2)
 await sleep(300)
 await shoot('interior-25-shelf-screen')
 
-// ⑦ VR 沉浸阅读舱（场景四）：踩上地毯幕布亮 → 翻页 → 走开收回
+// ⑩ VR 沉浸阅读舱（场景四）：踩上地毯幕布亮 → 翻页 → 走开收回
 // 站位取地毯南侧的空档（三张躺椅在 z 8.2~9.8 都有碰撞盒，正中站着会被推开）
 await evaluate(`__stage.setWalkPose(-15, 10.5, 1.287, 0, 0)`)
 let vr = null

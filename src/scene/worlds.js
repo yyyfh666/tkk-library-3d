@@ -17,6 +17,8 @@ import { createVrReading } from './vrReading.js'
 import { createBurst } from './particles.js'
 import { useHallStore } from '../state/store.js'
 import { getBookByInstanceMeta } from '../state/mockBooks.js'
+import { getHoloChapter } from '../state/holoChapters.js'
+import { createSpeechBus } from '../audio/speech.js'
 import { DAY_NIGHT, HALL_LIGHT } from './palette.js'
 
 /** 相机初始机位：略高的俯视，配长焦，才有"微缩模型"那种被压扁的玩具感 */
@@ -294,9 +296,18 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   let pinnedBook = null // 找书命中的那本（书架屏与高亮框的"钉子"）
   let pinnedItem = null // 它在 hall.js 里的实例元数据（带包围盒）
   let hoverShelfId = null // 鼠标/准星当前指着哪架书架
-  let holoNear = false
   let vrNear = false
   const lastVr = { bookId: null, page: -1 } // 防 store 每次 set() 都重画
+
+  // —— 全息演出（场景三）——
+  let holoNear = false // 投影亮着（5m 进 / 8m 出）
+  let holoCinematic = false // 顺便把这场当"演出"看：藏漫游 UI、锁走路、上字幕
+  let holoDismissed = false // 按 Esc / 点"退出观看"之后，人还站在圈里也先别夺控制
+  let holoLook = null // 进场时转向全息的角插值（落地即还回转头）
+  let lastHoloChapter = useHallStore.getState().holo.chapterId
+  let lastHoloMuted = useHallStore.getState().holo.muted
+  const speech = createSpeechBus()
+  const lookEuler = new THREE.Euler(0, 0, 0, 'YXZ')
 
   const agent = createRobotAgent({
     object3d: robot,
@@ -339,7 +350,62 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       lastVr.page = vr.page
       vrReading.show(vr.bookId, vr.page)
     }
+    // 全息章节：UI 点了时间轴 → 换贴图；正在演出就把旁白也换掉
+    // （speech 内部是先 cancel 再 speak，所以连点节点不会两条声音叠在一起）
+    if (state.holo.chapterId !== lastHoloChapter) {
+      lastHoloChapter = state.holo.chapterId
+      hologram.setChapter(lastHoloChapter)
+      if (holoCinematic) speech.say(getHoloChapter(lastHoloChapter))
+    }
+    // 静音开关：**store 是唯一真相，语音总线得跟着它走** ——
+    // 忘了这一句的话，界面上"旁白开"了、总线上还是静音，怎么点都没声（第一版就栽在这）
+    if (state.holo.muted !== lastHoloMuted) {
+      lastHoloMuted = state.holo.muted
+      speech.setMuted(lastHoloMuted)
+      // 刚打开声音：把当前这一章念出来，不然按了没反应
+      if (!lastHoloMuted && holoCinematic) speech.say(getHoloChapter(state.holo.chapterId))
+    }
   })
+
+  /* ------------------------------------------------------------------ *
+   * 全息演出的进出场（场景三）
+   * ------------------------------------------------------------------ */
+
+  /** 进场时把视线平滑转向全息：1.2s 的角度插值，落地就把转头交还给用户 */
+  const startHoloLook = () => {
+    const pose = walk.getPose()
+    const eye = new THREE.Vector3(pose.x, pose.y + HALL_VIEWS.walk.eye, pose.z)
+    const dir = hologram.center.clone().sub(eye)
+    if (dir.lengthSq() < 1e-4) return
+    const len = dir.length()
+    lookEuler.setFromQuaternion(camera.quaternion)
+    holoLook = {
+      t: 0,
+      fromYaw: lookEuler.y,
+      fromPitch: lookEuler.x,
+      toYaw: Math.atan2(-dir.x, -dir.z), // 和 gotoView('walk') 用的是同一套朝向约定
+      toPitch: Math.asin(THREE.MathUtils.clamp(dir.y / len, -1, 1)),
+    }
+  }
+
+  /**
+   * 演出态的唯一开关。进来时：锁走路（**不**解指针锁）、把镜头转向全息、开口念第一章；
+   * 出去时：解锁走路、掐掉声音。UI 相关的一切都只是通知 store，不在这里碰 React。
+   */
+  const setHoloCinematic = (next) => {
+    if (next === holoCinematic) return
+    holoCinematic = next
+    const store = useHallStore.getState()
+    store.setHoloCinematic(next)
+    walk.setMoveLocked(next)
+    if (next) {
+      startHoloLook()
+      speech.say(getHoloChapter(store.holo.chapterId))
+    } else {
+      holoLook = null
+      speech.cancel()
+    }
+  }
 
   /**
    * 拾取到一本书时，同时更新三处：书架屏（3D）、高亮框（3D）、React 里的准星提示。
@@ -428,6 +494,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   const exitWalkState = () => {
     if (!walkActive) return
     walkActive = false
+    setHoloCinematic(false) // 离开第一视角 = 演出结束（先于 setEnabled，顺序无所谓，但别漏）
     walk.setEnabled(false)
     wallsLocked = false
     ceiling.visible = false
@@ -510,13 +577,17 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       hologram.update(elapsed, dt)
       vrReading.tick(dt)
 
-      // 全息：相机走进触发圈就亮，并通知 React 弹出陈嘉庚的故事时间轴
-      const near = camera.position.distanceTo(hologram.center) < HOLOGRAM.triggerRadius
+      // 全息：进 5m 亮、退 8m 关，中间留着滞回带（免得站在边界上反复开关）
+      const holoDist = camera.position.distanceTo(hologram.center)
+      const near = holoNear ? holoDist < HOLOGRAM.exitRadius : holoDist < HOLOGRAM.triggerRadius
       if (near !== holoNear) {
         holoNear = near
         hologram.setActive(near)
-        useHallStore.getState().setHologramActive(near)
+        useHallStore.getState().setHoloActive(near)
+        if (!near) holoDismissed = false // 走出去再回来 = 新的一次演出
       }
+      // 把这场当"演出"看只在第一视角下成立：俯视/贴近视角飞过来只是点亮投影，不夺走控制
+      setHoloCinematic(holoNear && walkActive && !holoDismissed)
 
       // VR 阅读舱：踩上西侧地毯，幕布开始"放映"
       const vrNearNow = camera.position.distanceTo(vrReading.center) < VR_READ.triggerRadius
@@ -554,6 +625,23 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
           else exitWalkState()
         }
       } else if (walkActive) {
+        // 进场转向：角度走最短一侧，结束就把转头还回去（不调 walk.update 之外的相机写操作）
+        if (holoLook) {
+          holoLook.t = Math.min(1, holoLook.t + dt / 1.2)
+          const k = easeInOut(holoLook.t)
+          let dYaw = (holoLook.toYaw - holoLook.fromYaw) % (Math.PI * 2)
+          if (dYaw > Math.PI) dYaw -= Math.PI * 2
+          if (dYaw < -Math.PI) dYaw += Math.PI * 2
+          const pose = walk.getPose()
+          walk.setPose(
+            pose.x,
+            pose.z,
+            holoLook.fromYaw + dYaw * k,
+            THREE.MathUtils.lerp(holoLook.fromPitch, holoLook.toPitch, k),
+            pose.y,
+          )
+          if (holoLook.t >= 1) holoLook = null
+        }
         walk.update(dt) // 第一视角：绝不进 OrbitControls
         const config = pickHotspot()
         if ((config?.id ?? null) !== (hovered?.id ?? null)) {
@@ -600,8 +688,26 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     pickHotspot,
     /** 测试钩子：机器人状态 / 全息状态 / 阅读舱状态（UI 那边走 store，不读这里） */
     robotState: () => agent.getState(),
-    hologramState: () => ({ near: holoNear, fade: hologram.fade, center: hologram.center.toArray() }),
+    hologramState: () => ({
+      ...hologram.state(),
+      near: holoNear,
+      cinematic: holoCinematic,
+      distance: +camera.position.distanceTo(hologram.center).toFixed(2),
+    }),
     vrState: () => ({ ...vrReading.state(), near: vrNear }),
+    /** 旁白的状态与流水（测试断言"每次换章都先掐后念、没有重复调用"） */
+    speechLog: () => ({
+      log: speech.getLog(),
+      cancels: speech.cancelCount,
+      available: speech.available,
+      provider: speech.providerName,
+      muted: speech.muted,
+    }),
+    /** 退出观看（App 的 Esc 与"退出观看"按钮调它）：只解演出态，人还留在第一视角 */
+    exitHolo() {
+      holoDismissed = true
+      setHoloCinematic(false)
+    },
     /** 测试钩子：规划一条路径（断言"绕开中庭那个洞"用） */
     navPlan: (from, to) => planPath(navGrid, from, to)?.map((p) => [p.x, p.z]) ?? null,
     /**
@@ -646,10 +752,13 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       }
       // 离开大厅：把"跟着相机走"的状态收回来（否则回来时会挂着一个早已失效的全息时间轴）
       applyHover(null)
+      setHoloCinematic(false)
+      speech.cancel()
+      holoDismissed = false
       if (holoNear) {
         holoNear = false
         hologram.setActive(false)
-        useHallStore.getState().setHologramActive(false)
+        useHallStore.getState().setHoloActive(false)
       }
       if (vrNear) {
         vrNear = false
@@ -683,6 +792,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       renderer.domElement.removeEventListener('pointermove', onPointerMove)
       renderer.domElement.removeEventListener('pointerleave', onPointerLeave)
       unsubscribeStore()
+      speech.cancel()
       screens.dispose()
       marker.dispose()
       hologram.dispose()

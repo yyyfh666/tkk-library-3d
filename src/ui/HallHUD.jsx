@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ROBOT_POIS, SHELF_UNITS_L0, shelfStandPoint } from '../scene/hallLayout.js'
 import { useHallStore } from '../state/store.js'
 import { VR_BOOKS, getVrBook } from '../state/vrBooks.js'
+import { HOLO_CHAPTERS, getHoloChapter, holoChapterIndex } from '../state/holoChapters.js'
 
 /**
  * 三楼大厅的交互面板（场景二/三）。
@@ -30,18 +31,6 @@ const ROBOT_STATUS = {
   arrived: { text: '已到达', tone: 'ok' },
   failed: { text: '路线受阻', tone: 'bad' },
 }
-
-/**
- * 陈嘉庚与集美/厦大的几个节点。
- * ⚠️ 展陈文案为**示意内容**：年份是常识性史实，但不做史料引用，别当资料转述。
- */
-const STORY = [
-  ['1874', '生于福建同安集美社'],
-  ['1913', '创办集美学校，倾资兴学'],
-  ['1921', '创办厦门大学'],
-  ['1939', '组织南侨机工回国服务'],
-  ['1950', '回国定居，续建集美学村'],
-]
 
 /** 左下（大厅右栏）常驻：搜索馆藏 → 派机器人去书架；一键打卡 */
 export function HallGuide() {
@@ -180,35 +169,93 @@ export function BookCard() {
 }
 
 /** 走近全息展台时浮现的陈嘉庚故事时间轴 */
-export function HoloStory() {
-  const active = useHallStore((s) => s.hologram.active)
-  const [dismissed, setDismissed] = useState(false)
-  // 每次重新走近都重新展开（走开再回来 = 新的一次触发）
-  useEffect(() => {
-    if (active) setDismissed(false)
-  }, [active])
-  const ref = useAutoReveal(active)
-  if (!active || dismissed) return null
+/**
+ * 全息投影的时间轴（场景三）。
+ * 左栏那张卡（`cinema=false`）与演出态左侧那张（`cinema=true`）共用同一份节点列表 ——
+ * 差别只在演出态里字幕挪到底部字幕条上去了，卡上就不要再重复一遍。
+ */
+export function HoloStory({ cinema = false } = {}) {
+  const holo = useHallStore((s) => s.holo)
+  const setHoloChapter = useHallStore((s) => s.setHoloChapter)
+  const toggleHoloMuted = useHallStore((s) => s.toggleHoloMuted)
+  const ref = useAutoReveal(holo.active)
+  if (!holo.active) return null
+
+  const chapter = getHoloChapter(holo.chapterId)
+  const index = holoChapterIndex(holo.chapterId)
 
   return (
-    <section className="hud-card hud-card--holo" ref={ref}>
-      <button className="hud-card__close" type="button" onClick={() => setDismissed(true)} aria-label="关闭">
-        ✕
+    <section className={`hud-card hud-card--holo${cinema ? ' hud-card--cinema' : ''}`} ref={ref}>
+      <button
+        className="hud-card__sound"
+        type="button"
+        onClick={toggleHoloMuted}
+        aria-pressed={!holo.muted}
+        title="旁白由浏览器语音合成念读，不是本人原声"
+      >
+        {holo.muted ? '🔇 旁白静音' : '🔊 旁白开'}
       </button>
-      <p className="hud-card__kind">全息投影 · 已激活</p>
+      <p className="hud-card__kind">全息投影 · {holo.cinematic ? '演出中' : '已激活'}</p>
       <h3 className="hud-card__title">
         陈嘉庚 <em>1874 — 1961</em>
       </h3>
-      <ol className="holo-timeline">
-        {STORY.map(([year, what]) => (
-          <li key={year}>
-            <span className="holo-timeline__year">{year}</span>
-            <span className="holo-timeline__what">{what}</span>
+      <ol className="holo-nodes">
+        {HOLO_CHAPTERS.map((c, i) => (
+          <li key={c.id}>
+            <button
+              type="button"
+              className={i === index ? 'holo-node holo-node--on' : 'holo-node'}
+              onClick={() => setHoloChapter(c.id)}
+              aria-current={i === index}
+            >
+              <span className="holo-node__year">{c.year}</span>
+              <span className="holo-node__title">{c.title}</span>
+            </button>
           </li>
         ))}
       </ol>
-      <p className="hud-card__note">展陈文案为示意内容，非史料引用。</p>
+      {cinema ? (
+        <p className="hud-card__note">点节点换章节 · 左右方向键翻章</p>
+      ) : (
+        <>
+          <p className="hud-card__sub">{chapter.subtitle}</p>
+          {chapter.quote && <p className="holo-quote">"{chapter.quote}"</p>}
+          <p className="hud-card__note">
+            第一视角走近投影，会进入观看模式。旁白由浏览器语音合成念读，不是本人原声；展陈文案为示意内容，非史料引用。
+          </p>
+        </>
+      )}
     </section>
+  )
+}
+
+/**
+ * 演出态（cinematic）的一整套覆盖层：上下黑边 + 左侧时间轴 + 底部字幕 + 退出。
+ * 这里面**没有指针锁的解锁按钮** —— 演出期间指针是锁着的，所以退出只能靠 Esc（或被点画面）。
+ * 这也是为什么"丢了指针锁 = 退出观看"那条逻辑必须存在（见 App.jsx）。
+ */
+export function HoloTheatre({ onExit }) {
+  const chapterId = useHallStore((s) => s.holo.chapterId)
+  const chapter = getHoloChapter(chapterId)
+
+  return (
+    <div className="cinema" aria-live="polite">
+      <div className="cinema__bar cinema__bar--top" aria-hidden="true" />
+      <div className="cinema__bar cinema__bar--bottom" aria-hidden="true" />
+      <div className="cinema__panel">
+        <HoloStory cinema />
+      </div>
+      <div className="cinema__caption">
+        {chapter.quote && <p className="cinema__quote">"{chapter.quote}"</p>}
+        <p className="cinema__line">{chapter.subtitle}</p>
+        <p className="cinema__meta">
+          {chapter.year} · {chapter.title}　|　字幕与旁白为示意内容，非史料引用
+        </p>
+      </div>
+      <button className="cinema__exit" type="button" onClick={onExit}>
+        退出观看 · Esc
+      </button>
+    </div>
   )
 }
 

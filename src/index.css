@@ -913,33 +913,230 @@ body {
   transition: color 1.2s ease;
 }
 
-/* ---------------- 全息故事时间轴 ---------------- */
-.holo-timeline {
-  margin: 10px 0 0;
+/* ---------------- 全息时间轴（可点节点） ---------------- */
+.hud-card__sound {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  padding: 5px 10px;
+  border: 1px solid var(--panel-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--ink-faint);
+  font-family: inherit;
+  font-size: 10.5px;
+  letter-spacing: 0.4px;
+  cursor: pointer;
+  transition: color 0.22s ease, border-color 0.22s ease;
+}
+
+.hud-card__sound:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.hud-card__sound[aria-pressed='true'] {
+  border-color: #4aa8cf;
+  color: #4aa8cf;
+}
+
+.holo-nodes {
+  margin: 12px 0 0;
   padding: 0;
   list-style: none;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  gap: 2px;
 }
 
-.holo-timeline li {
+.holo-node {
   display: flex;
+  align-items: baseline;
   gap: 10px;
-  font-size: 12px;
-  line-height: 1.5;
+  width: 100%;
+  padding: 7px 9px;
+  border: none;
+  border-left: 2px solid var(--panel-line);
+  border-radius: 0 8px 8px 0;
+  background: transparent;
+  text-align: left;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.22s ease, border-color 0.22s ease;
 }
 
-.holo-timeline__year {
+.holo-node:hover {
+  background: rgba(127, 127, 127, 0.1);
+}
+
+.holo-node--on {
+  border-left-color: #4aa8cf;
+  background: rgba(74, 168, 207, 0.14);
+}
+
+.holo-node__year {
   flex: none;
-  width: 62px;
-  color: #4aa8cf;
+  width: 74px;
+  font-size: 11px;
   letter-spacing: 0.4px;
+  color: var(--ink-faint);
 }
 
-.holo-timeline__what {
+.holo-node--on .holo-node__year {
+  color: #4aa8cf;
+}
+
+.holo-node__title {
+  font-size: 12.5px;
   color: var(--ink-soft);
   transition: color 1.2s ease;
+}
+
+.holo-node--on .holo-node__title {
+  color: var(--ink);
+}
+
+.holo-quote {
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid rgba(74, 168, 207, 0.5);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #4aa8cf;
+}
+
+/* ==================================================================
+ * 全息演出态：上下黑边 + 左侧时间轴 + 底部字幕 + 退出
+ * 常规漫游 UI 在这一态下整层不渲染（见 App.jsx），所以这里不用跟谁抢层级。
+ * ================================================================== */
+
+.cinema {
+  position: absolute;
+  inset: 0;
+  pointer-events: none; /* 只有面板与退出按钮吃点击，其余让画布照常收鼠标 */
+  animation: cinema-in 0.5s ease both;
+}
+
+@keyframes cinema-in {
+  from {
+    opacity: 0;
+  }
+}
+
+.cinema__bar {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 10vh;
+  background: #04080d;
+  animation: cinema-bar 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+.cinema__bar--top {
+  top: 0;
+}
+
+.cinema__bar--bottom {
+  bottom: 0;
+  height: 17vh; /* 比上黑边高：字幕落在黑边上，像真字幕，也不压住全息画面 */
+  animation-delay: 0.06s;
+}
+
+@keyframes cinema-bar {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+.cinema__panel {
+  position: absolute;
+  left: 38px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 300px;
+  pointer-events: auto;
+}
+
+.hud-card--cinema {
+  background: rgba(8, 16, 24, 0.82);
+  border-color: rgba(127, 224, 255, 0.35);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.5);
+}
+
+.hud-card--cinema .hud-card__kind,
+.hud-card--cinema .hud-card__note {
+  color: #6f8d9f;
+}
+
+.hud-card--cinema .hud-card__title,
+.hud-card--cinema .holo-node--on .holo-node__title {
+  color: #eaf6fb;
+}
+
+.hud-card--cinema .holo-node__title {
+  color: #9fbccb;
+}
+
+.hud-card--cinema .holo-node {
+  border-left-color: rgba(127, 224, 255, 0.2);
+}
+
+.cinema__caption {
+  position: absolute;
+  left: 50%;
+  bottom: 3.2vh;
+  transform: translateX(-50%);
+  width: min(880px, 72vw);
+  text-align: center;
+  animation: card-in 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cinema__quote {
+  margin: 0 0 8px;
+  font-size: clamp(18px, 2.1vw, 30px);
+  font-weight: 600;
+  letter-spacing: 2px;
+  line-height: 1.5;
+  color: #8fe2ff;
+  text-shadow: 0 0 18px rgba(63, 182, 232, 0.55);
+}
+
+.cinema__line {
+  margin: 0;
+  font-size: clamp(13px, 1.25vw, 17px);
+  line-height: 1.9;
+  letter-spacing: 0.8px;
+  color: #dce9f1;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+.cinema__meta {
+  margin: 10px 0 0;
+  font-size: 11px;
+  letter-spacing: 1.2px;
+  color: #64808f;
+}
+
+.cinema__exit {
+  position: absolute;
+  right: 38px;
+  top: calc(10vh + 20px);
+  padding: 8px 16px;
+  border: 1px solid rgba(127, 224, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(8, 16, 24, 0.72);
+  color: #9fd8ff;
+  font-family: inherit;
+  font-size: 12px;
+  letter-spacing: 0.8px;
+  cursor: pointer;
+  pointer-events: auto;
+  transition: background 0.25s ease, color 0.25s ease;
+}
+
+.cinema__exit:hover {
+  background: #9fd8ff;
+  color: #06202e;
 }
 
 /* ---------------- 打卡横幅 ---------------- */

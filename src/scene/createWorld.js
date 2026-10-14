@@ -162,6 +162,8 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
       robotState: () => worlds.hall.robotState?.() ?? null,
       hologramState: () => worlds.hall.hologramState?.() ?? null,
       vrState: () => worlds.hall.vrState?.() ?? null,
+      speechLog: () => worlds.hall.speechLog?.() ?? [],
+      exitHolo: () => worlds.hall.exitHolo?.(),
       navPlan: (from, to) => worlds.hall.navPlan?.(from, to) ?? null,
       simulateRobot: (seconds) => worlds.hall.simulateRobot?.(seconds) ?? null,
       commandRobot: (point, label = '测试目标', payload = null) =>

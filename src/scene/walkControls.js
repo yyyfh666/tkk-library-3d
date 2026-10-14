@@ -36,6 +36,10 @@ export function createWalkControls({
   const vel = { x: 0, z: 0 }
   const keys = new Set()
   let enabled = false
+  // 只冻"走路"、不冻"转头"：全息演出期间用这个。
+  // 千万别拿 setEnabled(false) 代替 —— 那个会 pl.unlock() 掉指针锁，
+  // 用户会看到"点击画面继续漫游"，很出戏（还得再点一次才能接着看）。
+  let moveLocked = false
 
   const forward = new THREE.Vector3()
   const right = new THREE.Vector3()
@@ -88,6 +92,10 @@ export function createWalkControls({
     if (keys.has('KeyS') || keys.has('ArrowDown')) iz -= 1
     if (keys.has('KeyD') || keys.has('ArrowRight')) ix += 1
     if (keys.has('KeyA') || keys.has('ArrowLeft')) ix -= 1
+    if (moveLocked) {
+      ix = 0
+      iz = 0
+    }
     const running = keys.has('ShiftLeft') || keys.has('ShiftRight')
     const speed = running ? config.runSpeed : config.walkSpeed
 
@@ -145,8 +153,23 @@ export function createWalkControls({
         keys.clear()
         vel.x = 0
         vel.z = 0
+        moveLocked = false
         pl.unlock()
       }
+    },
+    /**
+     * 冻住位移、保留转头（全息演出用）。
+     * 和 setEnabled(false) 的区别就是**不解指针锁** —— 见文件上方那段注释。
+     */
+    setMoveLocked(on) {
+      moveLocked = on
+      if (on) {
+        vel.x = 0
+        vel.z = 0
+      }
+    },
+    get moveLocked() {
+      return moveLocked
     },
     /** 在用户手势里立刻请求指针锁（点按钮时调用） */
     requestLock() {

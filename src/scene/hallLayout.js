@@ -355,6 +355,7 @@ export const HOLOGRAM = {
   z: -10.1,
   radius: 0.76, // 基座外径（碰撞盒与光柱用）
   triggerRadius: 5, // 相机进这个圈就亮起来
+  exitRadius: 8, // 退到这么远才关（5~8m 是滞回带，免得站在边界上反复开关）
 }
 
 /**

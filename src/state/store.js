@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { fetchBookLocation } from './mockBooks.js'
 import { VR_BOOKS, getVrBook } from './vrBooks.js'
+import { HOLO_CHAPTERS, HOLO_CHAPTER_IDS, holoChapterIndex } from './holoChapters.js'
 
 /**
  * 全厅共享状态（Zustand）。
@@ -40,9 +41,23 @@ export const useHallStore = create((set, get) => ({
   clearSearch: () => set({ query: '', results: [], searching: false }),
   setSelectedBook: (book) => set({ selectedBook: book }),
 
-  // ===================== 全息投影（场景三）=====================
-  hologram: { active: false },
-  setHologramActive: (active) => set((s) => (s.hologram.active === active ? {} : { hologram: { active } })),
+  // ===================== 全息投影演出（场景三）=====================
+  // 分工和别处一致：**引擎按相机距离推 active / cinematic，UI 推 chapterId / muted**。
+  // active = 投影亮着；cinematic = 顺便把这场演出"当演出看"（藏漫游 UI、锁走路、上黑边字幕）。
+  holo: { active: false, cinematic: false, chapterId: HOLO_CHAPTERS[0].id, muted: true },
+  setHoloActive: (active) => set((s) => (s.holo.active === active ? {} : { holo: { ...s.holo, active } })),
+  setHoloCinematic: (cinematic) =>
+    set((s) => (s.holo.cinematic === cinematic ? {} : { holo: { ...s.holo, cinematic } })),
+  setHoloChapter: (chapterId) =>
+    set((s) => (s.holo.chapterId === chapterId ? {} : { holo: { ...s.holo, chapterId } })),
+  /** 上一章 / 下一章（时间轴两端的箭头用），到头就停住不绕圈 */
+  stepHoloChapter: (delta) =>
+    set((s) => {
+      const next = Math.min(HOLO_CHAPTER_IDS.length - 1, Math.max(0, holoChapterIndex(s.holo.chapterId) + delta))
+      const id = HOLO_CHAPTER_IDS[next]
+      return id === s.holo.chapterId ? {} : { holo: { ...s.holo, chapterId: id } }
+    }),
+  toggleHoloMuted: () => set((s) => ({ holo: { ...s.holo, muted: !s.holo.muted } })),
 
   // ===================== 书架信息屏 =====================
   hoveredBook: null, // 鼠标/准星正指着的那本书（来自 3D 射线）
