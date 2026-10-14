@@ -505,9 +505,10 @@ await sleep(300)
 await shoot('interior-31-atrium-dressing')
 
 // 队友点名要的"防止第一视角穿模"：同一条起跑线、同样走 1.5s，
-// x=0 那条道上有玻璃罩、x=1.03 那条道在罩子中间（间距 2.067、罩宽 0.34，缝够宽）——
+// x=2.07 那条道上正对玻璃罩、x=1.03 那条道在罩子中间（间距 2.067、罩宽 0.34，缝够宽）——
 // 只要前者被挡在罩子前、后者能一路走上台阶，就说明碰撞真的生效了（不是只看代码）。
-const laneBlocked = await evaluate(`__stage.simulateWalk(['KeyW'], 1.5, [0, 7.0, 0, 0, 0])`)
+// ⚠️ 别拿 x=0 测：那条道的罩子**故意去掉了**（让给阶梯中线的红毯），测了会"绿灯但测空"。
+const laneBlocked = await evaluate(`__stage.simulateWalk(['KeyW'], 1.5, [2.07, 7.0, 0, 0, 0])`)
 const laneFree = await evaluate(`__stage.simulateWalk(['KeyW'], 1.5, [1.03, 7.0, 0, 0, 0])`)
 console.log(
   laneBlocked.z > 5.3 && laneFree.z < 5.0
@@ -548,6 +549,21 @@ console.log(
     ? `✔ 看台外缘护栏拦得住（不会掉进中庭）：${ledgeOut.join('  ')}`
     : `✘ 有人掉进中庭了（y 应该留在台面高度）：${ledgeOut.join('  ')}`,
 )
+
+// ⑬ 北墙卷轴墙 + 阶梯红毯
+// 卷轴墙：10 幅画面各不相同但只占 1 个 draw call（图集 + 逐幅烘 UV 再合并）——
+// 所以截图要能看出"每幅不一样"（有白纸黑字的、有朱红块的、有反白的）。
+// 站位注意：卷轴在 z=-11.86，全息投影面板在 z=-10.1，别站太后让投影挡住墙。
+await evaluate(`__stage.setWalkPose(-5.6, -6.2, -0.35, 0.03, 0)`)
+await pump(2)
+await sleep(300)
+await shoot('interior-32-scroll-wall')
+
+// 红毯：从南面看，一条红毯沿台阶中线通到围挡
+await evaluate(`__stage.setWalkPose(0, 8.2, 0, -0.2, 0)`)
+await pump(2)
+await sleep(300)
+await shoot('interior-33-red-carpet')
 
 // 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
 await evaluate(`__stage.commandRobot(null)`)

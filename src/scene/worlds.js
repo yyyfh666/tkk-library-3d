@@ -243,6 +243,17 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   skylight.target.position.set(0, 0, 0)
   scene.add(skylight, skylight.target)
 
+  // 北墙卷轴墙的洗墙光：**一盏宽的**罩住整面墙。
+  // 队友的原话是"每幅画正上方一盏 SpotLight"（10~15 盏）—— 不能那么加：大厅现在已经有
+  // 9 个光源（他自己要求控制在 5~8，本来就超了），再加十几盏等于把每个像素的光照循环
+  // 翻两倍。所以"每幅画一个光斑"这件事**烘进卷轴贴图**里（textures.js 的 drawScrollAtlas），
+  // 真灯只留这一盏做整体洗墙。decay = 0 / 不投影的理由同上面那盏天窗光。
+  // 强度很克制：米黄纸的反照率高，洗墙光给多了会当场泛白（曝光探针会抓）。
+  const wallWash = new THREE.SpotLight(0xffe6bd, 0.42, 0, 1.05, 0.85, 0)
+  wallWash.position.set(0, 5.6, -7.2)
+  wallWash.target.position.set(0, 1.9, -11.9)
+  scene.add(wallWash, wallWash.target)
+
   // 展品补光：**一盏摆中**，同时罩住根雕与两排展柜。队友写的是"展柜和木雕上方各加一盏"，
   // 但每盏点光都进 shader 循环（README 记着"点光只放 4 盏，多了帧率真的掉"），只加一盏。
   const exhibitLight = new THREE.PointLight(

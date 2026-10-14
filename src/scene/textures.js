@@ -55,10 +55,10 @@ function makeCanvas(w, h) {
   return canvas
 }
 
-function toTexture(canvas, { srgb, maxAnisotropy }) {
+function toTexture(canvas, { srgb, maxAnisotropy, clamp = false }) {
   const tex = new THREE.CanvasTexture(canvas)
-  tex.wrapS = THREE.RepeatWrapping
-  tex.wrapT = THREE.RepeatWrapping
+  tex.wrapS = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping
+  tex.wrapT = clamp ? THREE.ClampToEdgeWrapping : THREE.RepeatWrapping
   tex.anisotropy = maxAnisotropy
   if (srgb) tex.colorSpace = THREE.SRGBColorSpace // 颜色图必须标 sRGB
   return tex
@@ -287,6 +287,111 @@ function drawFloorTileBump(ctx, w, h) {
   ctx.fillStyle = '#9A9A9A'
   ctx.fillRect(0, 0, w, bandW)
   ctx.fillRect(0, 0, bandW, h)
+}
+
+/**
+ * 北墙展区的**竖排挂轴图集**：一张贴图装 6 幅。
+ *
+ * 为什么是图集、而不是 6 张贴图或 6 个 mesh：要"每幅字画不一样"，**InstancedMesh 做不到**
+ * （它的所有实例共用同一份材质与 UV）。正解是一张图集 + 逐幅把 UV 区间烘到几何上，
+ * 再把十片平面合并成**一个** mesh —— 1 个 draw call，10 种画面。
+ * 也正因为是图集，这张贴图**必须 ClampToEdge**，否则采样会串到隔壁那幅去。
+ *
+ * 观感照 `参考资料/实拍照片/10-书法展墙.jpg`：白纸黑墨的竖排为主、个别一幅用朱红大色块、
+ * 顶边齐平、从天花轨道吊下来（下轴那根杆画在底部）。
+ * ⚠️ 笔触是**抽象画的示意**，不是真书法作品，别对外当作品引用。
+ * 每格顶部那道暖色光晕是**烘进贴图的"洗墙光斑"**，不是真灯打出来的（见 worlds.js 的注释）。
+ */
+function drawScrollAtlas(ctx, w, h) {
+  const cells = 6
+  const cw = w / cells
+  for (let i = 0; i < cells; i++) {
+    const rnd = seededRand(20261021 + i * 977)
+    const x0 = i * cw
+    const dark = i === 2 // 第 3 幅反白：深底浅字（照片里那张黑底的）
+    ctx.fillStyle = dark ? '#1E1C19' : i % 2 ? '#EFE7D4' : '#F6F2E8'
+    ctx.fillRect(x0, 0, cw, h)
+
+    // 纸的横向纤维质感
+    for (let k = 0; k < 90; k++) {
+      ctx.fillStyle = dark ? `rgba(255,255,255,${rnd() * 0.03})` : `rgba(120,100,70,${rnd() * 0.05})`
+      ctx.fillRect(x0 + rnd() * cw, rnd() * h, 1 + rnd() * 3, 8 + rnd() * 60)
+    }
+
+    // 装裱边（四边留白）
+    ctx.strokeStyle = dark ? 'rgba(230,225,210,0.5)' : 'rgba(90,72,50,0.35)'
+    ctx.lineWidth = 2
+    ctx.strokeRect(x0 + cw * 0.05, h * 0.035, cw * 0.9, h * 0.93)
+
+    // 主体：一列竖排的"字"——每"字"由几笔横竖组成。
+    // 用带圆头、粗细变化的**笔画**而不是矩形色块，远看才像书法；纯色块会读成条形码。
+    const ink = dark ? 'rgba(240,236,225,' : 'rgba(26,22,18,'
+    ctx.lineCap = 'round'
+    const chars = 6 + Math.floor(rnd() * 3)
+    for (let c = 0; c < chars; c++) {
+      const cy = h * 0.13 + c * ((h * 0.6) / chars)
+      const ch = (h * 0.6) / chars
+      const cx = x0 + cw * 0.5
+      const strokes = 3 + Math.floor(rnd() * 4)
+      for (let s = 0; s < strokes; s++) {
+        ctx.strokeStyle = `${ink}${0.4 + rnd() * 0.5})`
+        if (rnd() < 0.45) {
+          // 横：粗一点
+          ctx.lineWidth = ch * (0.05 + rnd() * 0.07)
+          const w = cw * (0.16 + rnd() * 0.34)
+          const yy = cy + ch * (0.12 + rnd() * 0.72)
+          ctx.beginPath()
+          ctx.moveTo(cx - w / 2, yy)
+          ctx.lineTo(cx + w / 2, yy)
+          ctx.stroke()
+        } else {
+          // 竖：细一点，允许轻微歪斜
+          ctx.lineWidth = ch * (0.03 + rnd() * 0.05)
+          const hh = ch * (0.3 + rnd() * 0.55)
+          const xx = cx + (rnd() - 0.5) * cw * 0.44
+          ctx.beginPath()
+          ctx.moveTo(xx, cy + ch * 0.1)
+          ctx.lineTo(xx + (rnd() - 0.5) * cw * 0.07, cy + ch * 0.1 + hh)
+          ctx.stroke()
+        }
+      }
+    }
+    // 落款：底部两三个小笔画
+    for (let s = 0; s < 3; s++) {
+      ctx.strokeStyle = `${ink}${0.5 + rnd() * 0.4})`
+      ctx.lineWidth = 3 + rnd() * 3
+      const yy = h * (0.8 + s * 0.035)
+      ctx.beginPath()
+      ctx.moveTo(x0 + cw * 0.2, yy)
+      ctx.lineTo(x0 + cw * (0.32 + rnd() * 0.16), yy)
+      ctx.stroke()
+    }
+
+    // 两幅用朱红大色块（照片里那几张红白海报）
+    if (i === 1 || i === 5) {
+      ctx.fillStyle = 'rgba(168,40,34,0.88)'
+      ctx.fillRect(x0 + cw * 0.22, h * 0.2, cw * 0.56, h * 0.3)
+      ctx.fillStyle = 'rgba(255,255,255,0.9)'
+      ctx.fillRect(x0 + cw * 0.3, h * 0.28, cw * 0.4, h * 0.035)
+      ctx.fillRect(x0 + cw * 0.3, h * 0.36, cw * 0.28, h * 0.035)
+    }
+
+    // 朱红印章
+    ctx.fillStyle = 'rgba(170,42,36,0.92)'
+    ctx.fillRect(x0 + cw * (0.6 + rnd() * 0.14), h * (0.78 + rnd() * 0.05), cw * 0.13, cw * 0.13)
+
+    // 下轴那根辊杆
+    ctx.fillStyle = dark ? 'rgba(60,55,48,1)' : 'rgba(74,62,46,1)'
+    ctx.fillRect(x0 + cw * 0.06, h * 0.965, cw * 0.88, h * 0.022)
+
+    // 烘进去的"洗墙光斑"：顶部一道暖色光晕，往下衰减
+    const g = ctx.createLinearGradient(0, 0, 0, h * 0.75)
+    g.addColorStop(0, 'rgba(255,226,170,0.34)')
+    g.addColorStop(0.35, 'rgba(255,226,170,0.12)')
+    g.addColorStop(1, 'rgba(255,226,170,0)')
+    ctx.fillStyle = g
+    ctx.fillRect(x0, 0, cw, h * 0.75)
+  }
 }
 
 /** 中庭深色拼花地砖：深砖 + 白色圆环纹样（照片 08） */
@@ -632,10 +737,10 @@ export function createHallTextures({ maxAnisotropy = 4 } = {}) {
   if (cache) return cache
   const a = Math.min(maxAnisotropy, 8)
   // 一步到位：开画布 → 画 → 包成 texture（srgb=false 给凹凸图用）
-  const make = (w, h, draw, srgb = true) => {
+  const make = (w, h, draw, srgb = true, clamp = false) => {
     const canvas = makeCanvas(w, h)
     draw(canvas.getContext('2d'), w, h)
-    return toTexture(canvas, { srgb, maxAnisotropy: a })
+    return toTexture(canvas, { srgb, maxAnisotropy: a, clamp })
   }
 
   cache = {
@@ -660,6 +765,7 @@ export function createHallTextures({ maxAnisotropy = 4 } = {}) {
     bookSpine: make(128, 256, drawBookSpine),
     leaf: make(256, 512, drawLeaf),
     backdrop: make(512, 256, drawBackdrop),
+    scrollAtlas: make(2304, 1152, drawScrollAtlas, true, true), // 图集：必须夹边
     fluteBump: make(256, 256, drawFluteBump, false),
   }
   return cache

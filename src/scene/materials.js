@@ -264,7 +264,7 @@ const SPECS = {
     nightEmissiveIntensity: 1.5,
   },
   hallCurtain: { color: '#EFECE4' }, // 窗边白纱帘
-  hallExhibit: { color: '#EDE6D6' }, // 展板 / 书法条幅
+  hallExhibit: { color: '#EDE6D6' }, // 展板 / 书法条幅（已并入卷轴墙，留着给别的展板用）
   hallCarving: { color: C.hallCarving }, // 根雕：深木色，不贴图（要的就是团块的剪影感）
 
   // —— 中庭陈设（照片 04：台阶上的小玻璃罩、台缘一排盆栽、围住展台的红绳）——
@@ -294,6 +294,15 @@ const SPECS = {
   hallRope: { color: '#8E2230' }, // 红丝绒隔离绳：绒面不该反光，lambert 正好
   hallRelic: { color: '#FFFFFF' }, // 玻璃罩里那件"展品"：颜色走 instanceColor，材质必须纯白
   hallSofa: { color: '#8E3A34' }, // 一层回廊的暗红沙发（照片 13 里那几件）
+  hallScroll: {
+    color: '#FFFFFF', // 画面全在图集里；不要 envMap（纸不该反光，也别让它在洗墙光下泛白）
+    nightColor: '#4A443C',
+    type: 'standard',
+    map: 'scrollAtlas',
+    roughness: 0.88, // 纸面哑光：队友点名要的"避免反光过强"
+    side: THREE.DoubleSide, // 侧面也要能看到（他要求的）；紧贴墙的平板，代价可忽略
+  },
+  hallCarpet: { color: '#8E2A2A' }, // 阶梯中线的红毯：布料，哑光
   hallSofaCushion: { color: '#B04E42' }, // 坐垫比沙发体亮一档，不然整只是块红砖
   hallPot: { color: '#D8CBA6' }, // 展台上的浅黄陶盆（照片里一整排就是它）
   hallShrub: {

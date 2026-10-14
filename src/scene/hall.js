@@ -12,6 +12,8 @@ import {
   CARVING,
   ATRIUM_DRESSING,
   GALLERY_SOFAS,
+  SCROLL_WALL,
+  RED_CARPET,
   RAILINGS,
   SHELF_UNITS,
   TABLES,
@@ -76,6 +78,8 @@ const SHADOW = {
   hallShrub: { cast: true, receive: false },
   hallSofa: { cast: true, receive: true },
   hallSofaCushion: { cast: false, receive: true },
+  hallScroll: { cast: false, receive: true }, // 紧贴墙的挂轴：自己不投影（投了会在墙上打出一条暗边）
+  hallCarpet: { cast: false, receive: true }, // 铺在台面上的一层
   desk: { cast: true, receive: true },
   chair: { cast: true, receive: true },
   wood: { cast: true, receive: true },
@@ -980,9 +984,35 @@ export function buildHall(materials) {
     addColliderBox(x, 0.6, z, 0.8, 1.2, 0.8, 'planter')
   }
 
-  // 展签 / 条幅（北墙展墙上挂三幅）
-  for (let i = 0; i < 3; i++) {
-    addBox('hallExhibit', { w: 1.3, h: 2.0, d: 0.06, x: -4 + i * 4, y: 1.7, z: -halfD + 0.2, tile: 1.2, collide: true, tag: 'exhibit' })
+  // 阶梯中线的红毯（照片 04：一条红毯从台阶正中通到中央展台）。
+  // 每级一块 —— 台阶是阶梯状的，一块平面贴不上去。
+  for (const tier of TERRACES) {
+    const geo = new THREE.PlaneGeometry(RED_CARPET.halfWidth * 2, tier.z1 - tier.z0)
+    geo.rotateX(-Math.PI / 2)
+    geo.translate(0, tier.top + RED_CARPET.lift, (tier.z0 + tier.z1) / 2)
+    addGeo('hallCarpet', geo)
+  }
+
+  // 北墙展区的竖排挂轴：10 幅、画面各不相同，但**只占 1 个 draw call**。
+  // 做法是"一张图集 + 逐幅把 UV 区间烘进几何，再合并" —— InstancedMesh 在这里**做不到**，
+  // 因为它的所有实例共用同一份材质与 UV，出不来"每幅不一样"。
+  {
+    const S = SCROLL_WALL
+    const cells = 6
+    const inset = 0.008 // UV 四周内缩：图集 + mipmap 不内缩会在格子边界串色
+    S.spots.forEach((sx, i) => {
+      const geo = new THREE.PlaneGeometry(S.w, S.h)
+      const uv = geo.attributes.uv
+      const u0 = (i % cells) / cells + inset
+      const u1 = ((i % cells) + 1) / cells - inset
+      for (let k = 0; k < uv.count; k++) {
+        uv.setX(k, u0 + uv.getX(k) * (u1 - u0))
+        uv.setY(k, inset + uv.getY(k) * (1 - inset * 2))
+      }
+      uv.needsUpdate = true
+      geo.translate(sx, S.topY - S.h / 2, S.z)
+      addGeo('hallScroll', geo)
+    })
   }
 
   /* ================================================================
