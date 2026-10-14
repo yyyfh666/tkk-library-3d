@@ -6,13 +6,14 @@ import { buildLibrary } from './library.js'
 import { buildProps } from './props.js'
 import { createHotspots, ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './hotspots.js'
 import { buildHall, updateWalls } from './hall.js'
-import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS, ROBOT_PATH, HOLOGRAM, ACCESS } from './hallLayout.js'
+import { HALL, HALL_VIEWS, HOTSPOT_ANCHORS, ROBOT_PATH, HOLOGRAM, ACCESS, VR_READ } from './hallLayout.js'
 import { createWalkControls } from './walkControls.js'
 import { buildNavGrid, planPath } from './nav.js'
 import { resolveXZ } from './collision.js'
 import { createRobotAgent } from './robotAgent.js'
 import { createShelfScreens, pickBook, createHighlightMarker } from './shelfInteraction.js'
 import { createHologram } from './hologram.js'
+import { createVrReading } from './vrReading.js'
 import { createBurst } from './particles.js'
 import { useHallStore } from '../state/store.js'
 import { getBookByInstanceMeta } from '../state/mockBooks.js'
@@ -286,10 +287,16 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   const burst = createBurst()
   scene.add(burst.object3d)
 
+  // 场景四：西墙幕布上的"放映"面板（内容是 canvas 现画的导读页）
+  const vrReading = createVrReading()
+  scene.add(vrReading.group)
+
   let pinnedBook = null // 找书命中的那本（书架屏与高亮框的"钉子"）
   let pinnedItem = null // 它在 hall.js 里的实例元数据（带包围盒）
   let hoverShelfId = null // 鼠标/准星当前指着哪架书架
   let holoNear = false
+  let vrNear = false
+  const lastVr = { bookId: null, page: -1 } // 防 store 每次 set() 都重画
 
   const agent = createRobotAgent({
     object3d: robot,
@@ -321,9 +328,17 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   let lastCommandNonce = 0
   const unsubscribeStore = useHallStore.subscribe((state) => {
     const cmd = state.robotCommand
-    if (!cmd || cmd.nonce === lastCommandNonce) return
-    lastCommandNonce = cmd.nonce
-    agent.command(cmd)
+    if (cmd && cmd.nonce !== lastCommandNonce) {
+      lastCommandNonce = cmd.nonce
+      agent.command(cmd)
+    }
+    // 幕布那一页：书名/页号真变了才重画（zustand 每次 set() 都会通知，得自己判）
+    const vr = state.vr
+    if (vr.bookId !== lastVr.bookId || vr.page !== lastVr.page) {
+      lastVr.bookId = vr.bookId
+      lastVr.page = vr.page
+      vrReading.show(vr.bookId, vr.page)
+    }
   })
 
   /**
@@ -493,6 +508,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       screens.tick(dt)
       burst.update(dt)
       hologram.update(elapsed, dt)
+      vrReading.tick(dt)
 
       // 全息：相机走进触发圈就亮，并通知 React 弹出陈嘉庚的故事时间轴
       const near = camera.position.distanceTo(hologram.center) < HOLOGRAM.triggerRadius
@@ -500,6 +516,14 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
         holoNear = near
         hologram.setActive(near)
         useHallStore.getState().setHologramActive(near)
+      }
+
+      // VR 阅读舱：踩上西侧地毯，幕布开始"放映"
+      const vrNearNow = camera.position.distanceTo(vrReading.center) < VR_READ.triggerRadius
+      if (vrNearNow !== vrNear) {
+        vrNear = vrNearNow
+        vrReading.setActive(vrNearNow)
+        useHallStore.getState().setVrActive(vrNearNow)
       }
 
       updateWalls(walls, camera.position, wallsLocked)
@@ -574,9 +598,10 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
     },
     /** 准星现在指着哪个热点（App 的 E 键调它） */
     pickHotspot,
-    /** 测试钩子：机器人状态 / 全息状态（UI 那边走 store，不读这里） */
+    /** 测试钩子：机器人状态 / 全息状态 / 阅读舱状态（UI 那边走 store，不读这里） */
     robotState: () => agent.getState(),
     hologramState: () => ({ near: holoNear, fade: hologram.fade, center: hologram.center.toArray() }),
+    vrState: () => ({ ...vrReading.state(), near: vrNear }),
     /** 测试钩子：规划一条路径（断言"绕开中庭那个洞"用） */
     navPlan: (from, to) => planPath(navGrid, from, to)?.map((p) => [p.x, p.z]) ?? null,
     /**
@@ -626,6 +651,11 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
         hologram.setActive(false)
         useHallStore.getState().setHologramActive(false)
       }
+      if (vrNear) {
+        vrNear = false
+        vrReading.setActive(false)
+        useHallStore.getState().setVrActive(false)
+      }
       if (walkActive || viewMode === 'walk') {
         viewMode = 'dollhouse'
         exitWalkState()
@@ -656,6 +686,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       screens.dispose()
       marker.dispose()
       hologram.dispose()
+      vrReading.dispose()
       burst.dispose()
       walk.dispose()
       controls.dispose()

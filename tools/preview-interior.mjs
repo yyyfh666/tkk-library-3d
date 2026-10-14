@@ -342,6 +342,78 @@ await pump(2)
 await sleep(300)
 await shoot('interior-25-shelf-screen')
 
+// ⑦ VR 沉浸阅读舱（场景四）：踩上地毯幕布亮 → 翻页 → 走开收回
+// 站位取地毯南侧的空档（三张躺椅在 z 8.2~9.8 都有碰撞盒，正中站着会被推开）
+await evaluate(`__stage.setWalkPose(-15, 10.5, 1.287, 0, 0)`)
+let vr = null
+for (let i = 0; i < 16 && !(vr?.fade > 0.9); i++) {
+  await pump()
+  await sleep(220)
+  vr = await evaluate(`(() => ({
+    ...__stage.vrState(),
+    card: !!document.querySelector('.hud-card--vr'),
+  }))()`)
+}
+console.log(
+  vr?.active && vr.fade > 0.9
+    ? `✔ VR 阅读舱：踩上西侧地毯幕布亮起（fade ${vr.fade.toFixed(2)}，${vr.bookId} 第 ${vr.page + 1}/${vr.total} 页，右栏卡片在）`
+    : `✘ 幕布没亮：active=${vr?.active} fade=${vr?.fade} 卡片=${vr?.card}`,
+)
+await shoot('interior-26-vr-reading')
+
+// 翻页：点右栏的"下一页"，store 与幕布必须同步
+await evaluate(`document.querySelectorAll('.vr-pager__btn')[1].click()`)
+await pump(2)
+await sleep(300)
+const turned = await evaluate(`(() => ({
+  store: __stage.hallState().vr.page,
+  screen: __stage.vrState().page,
+  dom: (document.querySelector('.vr-pager__num')?.textContent ?? '').trim(),
+}))()`)
+console.log(
+  turned.store === 1 && turned.screen === 1
+    ? `✔ 翻页：store 与幕布同步到第 ${turned.store + 1} 页（右栏显示 ${turned.dom}）`
+    : `✘ 翻页不同步：store=${turned.store} 幕布=${turned.screen} 右栏=${turned.dom}`,
+)
+await shoot('interior-27-vr-page2')
+
+// 三本书 12 页全过一遍：只断言"不崩 + 页号同步"（12 张图没必要都截，看 3 张就够）
+await evaluate(`document.querySelectorAll('.vr-book')[2].click()`)
+await pump(1)
+await shoot('interior-28-vr-book3')
+const sweep = []
+for (let b = 0; b < 3; b++) {
+  await evaluate(`document.querySelectorAll('.vr-book')[${b}].click()`)
+  for (let p = 0; p < 4; p++) {
+    const row = await evaluate(`(() => {
+      const s = __stage.hallState().vr
+      const v = __stage.vrState()
+      return { store: s.page, screen: v.page, book: s.bookId, dom: !!document.querySelector('.vr-pager__num') }
+    })()`)
+    sweep.push(`${row.book}#${row.store + 1}${row.store === row.screen ? '' : '(不同步!)'}`)
+    if (p < 3) await evaluate(`document.querySelectorAll('.vr-pager__btn')[1].click()`)
+  }
+}
+console.log(
+  sweep.every((s) => !s.includes('不同步'))
+    ? `✔ 三本书 12 页翻遍无异常，页号始终同步：${sweep.join(' ')}`
+    : `✘ 有页不同步：${sweep.join(' ')}`,
+)
+
+// 走开 → 幕布收回（active 立刻翻假，淡出是指数逼近，得等它真的退下去）
+await evaluate(`__stage.setWalkPose(0, 9.4, 0, 0, 0)`)
+let vrOff = { active: true, fade: 1 }
+for (let i = 0; i < 16 && vrOff.fade > 0.08; i++) {
+  await pump()
+  await sleep(220)
+  vrOff = await evaluate(`(() => { const s = __stage.vrState(); return { active: s.active, fade: s.fade } })()`)
+}
+console.log(
+  vrOff.active === false && vrOff.fade <= 0.08
+    ? `✔ 走开后幕布收回（fade ${vrOff.fade.toFixed(3)}，面板已隐藏）`
+    : `✘ 走开了还没收回：active=${vrOff.active} fade=${vrOff.fade.toFixed(3)}`,
+)
+
 // 收尾：把机器人放回巡航（后面几张图别让它停在书巷里）
 await evaluate(`__stage.commandRobot(null)`)
 await evaluate(`__stage.simulateRobot(20)`)

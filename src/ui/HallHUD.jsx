@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ROBOT_POIS, SHELF_UNITS_L0, shelfStandPoint } from '../scene/hallLayout.js'
 import { useHallStore } from '../state/store.js'
+import { VR_BOOKS, getVrBook } from '../state/vrBooks.js'
 
 /**
  * 三楼大厅的交互面板（场景二/三）。
@@ -9,6 +10,18 @@ import { useHallStore } from '../state/store.js'
  * 文案与操作全在这层 HTML 上 —— 改样式不用碰渲染循环。
  * 数据都走 state/store.js，引擎那头只 push 状态、订阅命令。
  */
+
+/**
+ * 卡片是"跟着相机走"地冒出来的（全息 / 阅读舱），但右栏卡片一多，
+ * 新冒出来的那张很容易落在折叠线以下 —— 出现时把它滚进视野。
+ */
+function useAutoReveal(active) {
+  const ref = useRef(null)
+  useEffect(() => {
+    if (active) ref.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+  }, [active])
+  return ref
+}
 
 /** 机器人状态 → 面板上的小圆点与文案 */
 const ROBOT_STATUS = {
@@ -174,10 +187,11 @@ export function HoloStory() {
   useEffect(() => {
     if (active) setDismissed(false)
   }, [active])
+  const ref = useAutoReveal(active)
   if (!active || dismissed) return null
 
   return (
-    <section className="hud-card hud-card--holo">
+    <section className="hud-card hud-card--holo" ref={ref}>
       <button className="hud-card__close" type="button" onClick={() => setDismissed(true)} aria-label="关闭">
         ✕
       </button>
@@ -194,6 +208,70 @@ export function HoloStory() {
         ))}
       </ol>
       <p className="hud-card__note">展陈文案为示意内容，非史料引用。</p>
+    </section>
+  )
+}
+
+/**
+ * VR 沉浸阅读舱的遥控（场景四）。
+ * 引擎按相机距离决定幕布亮不亮，这边只管"放哪一本、翻到第几页" ——
+ * 所以毯上毯下控件是禁用的，站在走廊里翻页没有意义。
+ */
+export function VrReading() {
+  const vr = useHallStore((s) => s.vr)
+  const setVrBook = useHallStore((s) => s.setVrBook)
+  const stepVrPage = useHallStore((s) => s.stepVrPage)
+
+  const book = getVrBook(vr.bookId)
+  const total = book.pages.length
+  const page = book.pages[vr.page] ?? book.pages[0]
+  const ref = useAutoReveal(vr.active)
+
+  return (
+    <section className="hud-card hud-card--vr" ref={ref}>
+      <p className="hud-card__kind">VR 沉浸阅读舱</p>
+
+      <div className="vr-books">
+        {VR_BOOKS.map((b) => (
+          <button
+            key={b.id}
+            type="button"
+            className={b.id === vr.bookId ? 'vr-book vr-book--on' : 'vr-book'}
+            onClick={() => setVrBook(b.id)}
+            disabled={!vr.active}
+          >
+            {b.title}
+          </button>
+        ))}
+      </div>
+
+      <div className="vr-pager">
+        <button
+          className="vr-pager__btn"
+          type="button"
+          onClick={() => stepVrPage(-1)}
+          disabled={!vr.active || vr.page === 0}
+        >
+          ◂ 上一页
+        </button>
+        <span className="vr-pager__num">
+          {vr.page + 1} / {total}
+        </span>
+        <button
+          className="vr-pager__btn"
+          type="button"
+          onClick={() => stepVrPage(1)}
+          disabled={!vr.active || vr.page >= total - 1}
+        >
+          下一页 ▸
+        </button>
+      </div>
+
+      <p className="hud-card__page">{page.title}</p>
+      <p className="hud-card__status">
+        {vr.active ? '幕布放映中 · 第一视角下可用 ← → 翻页' : '走到西侧 VR 区的地毯上，幕布会自动亮起'}
+      </p>
+      <p className="hud-card__note">导读文字与插图为示意内容，不是原书原文。</p>
     </section>
   )
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { fetchBookLocation } from './mockBooks.js'
+import { VR_BOOKS, getVrBook } from './vrBooks.js'
 
 /**
  * 全厅共享状态（Zustand）。
@@ -46,4 +47,19 @@ export const useHallStore = create((set, get) => ({
   // ===================== 书架信息屏 =====================
   hoveredBook: null, // 鼠标/准星正指着的那本书（来自 3D 射线）
   setHoveredBook: (book) => set((s) => (s.hoveredBook?.id === book?.id ? {} : { hoveredBook: book })),
+
+  // ===================== VR 沉浸阅读舱（场景四）=====================
+  // 两边分工和全息一样：引擎按相机距离推 active（走进去就亮），
+  // React 推 bookId/page，引擎 subscribe 到变化才重画幕布那一页。
+  vr: { active: false, bookId: VR_BOOKS[0].id, page: 0 },
+  totalVrPages: (bookId) => getVrBook(bookId).pages.length,
+  setVrActive: (active) => set((s) => (s.vr.active === active ? {} : { vr: { ...s.vr, active } })),
+  setVrBook: (bookId) =>
+    set((s) => (s.vr.bookId === bookId ? {} : { vr: { ...s.vr, bookId, page: 0 } })),
+  stepVrPage: (delta) =>
+    set((s) => {
+      const total = getVrBook(s.vr.bookId).pages.length
+      const page = Math.min(total - 1, Math.max(0, s.vr.page + delta))
+      return page === s.vr.page ? {} : { vr: { ...s.vr, page } }
+    }),
 }))

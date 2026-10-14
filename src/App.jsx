@@ -4,7 +4,8 @@ import { ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './scene/hotspots.js'
 import IntroPanel from './ui/IntroPanel.jsx'
 import HotspotChips from './ui/HotspotChips.jsx'
 import InfoCard from './ui/InfoCard.jsx'
-import { HallGuide, BookCard, HoloStory, CheckinToast } from './ui/HallHUD.jsx'
+import { HallGuide, BookCard, HoloStory, VrReading, CheckinToast } from './ui/HallHUD.jsx'
+import { useHallStore } from './state/store.js'
 import { SceneControls, Hint } from './ui/Controls.jsx'
 
 export default function App() {
@@ -60,14 +61,24 @@ export default function App() {
     worldRef.current?.setPhaseTarget(isNight ? 1 : 0)
   }, [isNight])
 
-  // 第一视角：E 键查看准星指着的东西（指针锁定时鼠标点不到底部的胶囊条）
+  // 第一视角：E 查看准星指着的东西、←/→ 翻幕布那一页
+  // （指针锁定时鼠标点不到右栏的按钮，所以这两组键是必需的）
   useEffect(() => {
     const onKeyDown = (event) => {
-      if (event.code !== 'KeyE' || !walk.active) return
-      const config = worldRef.current?.worlds.hall.pickHotspot()
-      if (!config) return
-      worldRef.current.worlds.hall.walker.unlock() // 解锁指针，信息卡上的按钮才点得到
-      setSelected(config)
+      if (!walk.active) return
+      if (event.code === 'KeyE') {
+        const config = worldRef.current?.worlds.hall.pickHotspot()
+        if (!config) return
+        worldRef.current.worlds.hall.walker.unlock() // 解锁指针，信息卡上的按钮才点得到
+        setSelected(config)
+        return
+      }
+      const store = useHallStore.getState()
+      if (!store.vr.active) return
+      if (event.code === 'ArrowLeft' || event.code === 'ArrowRight') {
+        event.preventDefault() // 别让方向键滚页面
+        store.stepVrPage(event.code === 'ArrowRight' ? 1 : -1)
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
@@ -194,6 +205,7 @@ export default function App() {
           <HallGuide />
           <BookCard />
           <HoloStory />
+          <VrReading />
           <InfoCard hotspot={selected} onClose={() => setSelected(null)} />
         </div>
       )}

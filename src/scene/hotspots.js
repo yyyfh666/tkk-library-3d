@@ -72,7 +72,7 @@ export const HALL_HOTSPOTS = [
     id: 'vr',
     label: 'VR 阅读区',
     title: 'VR 阅读区',
-    body: '西窗边的地毯上摆着三张躺椅配头显，幕布放着馆藏影片。',
+    body: '西窗边的地毯上摆着三张躺椅配头显。走上地毯，幕布就会亮起来放映一部馆藏导读——可以翻页、换书。',
     position: HOTSPOT_ANCHORS.vr,
   },
   {
