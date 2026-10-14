@@ -429,6 +429,35 @@ src/
 
 真正的红线是"别搞成一千个独立 mesh"，这条早就守住了：全厅现在 **98 个 draw call**。
 
+## 部署（GitHub Pages）
+
+**线上地址：<https://yyyfh666.github.io/tkk-library-3d/>**
+（仓库 <https://github.com/yyyfh666/tkk-library-3d>，Pages 源 = `gh-pages` 分支的根路径）
+
+**改完之后更新线上，就两条命令：**
+
+```bash
+npm run build     # 打包到 dist/
+npm run deploy    # predeploy 会自动再 build 一次，然后把 dist/ 推到 gh-pages 分支
+```
+（也可以直接 `npm run deploy` —— 它的 `predeploy` 里已经带了 build。推完等 1~2 分钟
+Pages 自己重新构建，刷新网址即可。）
+
+**三个容易踩的点：**
+
+1. **别用"双击打开 `dist/index.html`"来本地验产物** —— Vite 打出来的是 ES module，
+   `file://` 协议下会被 CORS 拦死，页面是白的。要验产物用
+   `npm run serve:dist`（本地 4173 端口的静态服务器）。
+2. **打包产物里没有 `__stage` 测试钩子**（那个只有 DEV 环境注入），所以线上跑不了
+   `preview-interior.mjs` 那套断言，**只能靠截图看**。
+3. `vite.config.js` 里的 **`base: './'` 是相对路径**：换仓库名、换自定义域名都不用改它。
+   这个项目是单页应用（切场景走 URL 参数、没有前端路由），所以不会踩"深层路由拿不到资源"
+   那个经典坑。
+
+**顺带一句**：这个项目**没有任何外部贴图或模型文件**（红砖/大理石/木纹/玻璃/书脊全是
+canvas 现画的），所以不存在"打包后贴图 404"这类问题 —— `dist/` 里只有
+`index.html` 和 `assets/` 两个东西。
+
 ## 看效果不用装浏览器自动化
 
 两条 CDP 截图回路（Node 内置 WebSocket 驱动无头 Edge，零依赖）。先起 dev server：
