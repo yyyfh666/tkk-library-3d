@@ -425,6 +425,18 @@ export const TABLES = [
 
 export const COUNTER = { x0: 12.6, x1: 17.6, z0: 2.0, z1: 4.4, h: 1.05 } // 入口东侧的借还服务台
 
+/**
+ * 一层回廊上的红沙发（照片 13）：东西两侧各两张，都朝中庭（ry 让长边沿着 z）。
+ * 摆位避开了两处硬障碍：柱位在 (±8.5, 0 / ±6)，一层书架从 x≈13.4 起。
+ * 这里回廊是 4.2 那层 —— 所以 y 取 HALL.floorY[1]。
+ */
+export const GALLERY_SOFAS = [
+  { x: 11.2, y: HALL.floorY[1], z: 1.5, ry: -Math.PI / 2 },
+  { x: 11.2, y: HALL.floorY[1], z: -1.5, ry: -Math.PI / 2 },
+  { x: -11.2, y: HALL.floorY[1], z: 1.5, ry: Math.PI / 2 },
+  { x: -11.2, y: HALL.floorY[1], z: -1.5, ry: Math.PI / 2 },
+]
+
 export const VR_AREA = { x: -15, z: 8.6 } // 地毯中心
 
 /**

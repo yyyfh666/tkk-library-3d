@@ -11,6 +11,7 @@ import {
   TERRACES,
   CARVING,
   ATRIUM_DRESSING,
+  GALLERY_SOFAS,
   RAILINGS,
   SHELF_UNITS,
   TABLES,
@@ -73,6 +74,8 @@ const SHADOW = {
   hallRope: { cast: false, receive: false },
   hallPot: { cast: true, receive: true },
   hallShrub: { cast: true, receive: false },
+  hallSofa: { cast: true, receive: true },
+  hallSofaCushion: { cast: false, receive: true },
   desk: { cast: true, receive: true },
   chair: { cast: true, receive: true },
   wood: { cast: true, receive: true },
@@ -503,6 +506,35 @@ export function buildHall(materials) {
   }
 
   /* ================================================================
+   * 实例化的小工具（5b 与第 9 段的家具都用）
+   * 走 InstancedMesh 的都是"同一种几何 × 多个摆放"的小件；静态大件仍然走 addGeo
+   * 按材质合并 —— 两条路都只吃 1 个 draw call，区别在于实例化能带**逐实例的颜色与变换**。
+   * ================================================================ */
+
+  const UP_AXIS = new THREE.Vector3(0, 1, 0)
+  const iMat4 = new THREE.Matrix4()
+  const iQuat = new THREE.Quaternion()
+  const iVec = new THREE.Vector3()
+  const iScale = new THREE.Vector3()
+
+  const makeInstanced = (geo, matKey, count) => {
+    const mesh = new THREE.InstancedMesh(geo, materials[matKey], count)
+    const policy = SHADOW[matKey] ?? { cast: true, receive: true }
+    mesh.castShadow = policy.cast
+    mesh.receiveShadow = policy.receive
+    mesh.frustumCulled = false // 实例散在大半个厅里，包围球跨半厅，剔除反而害事（同书）
+    group.add(mesh)
+    return mesh
+  }
+  const place = (mesh, i, x, y, z, ry = 0, s = 1) => {
+    iQuat.setFromAxisAngle(UP_AXIS, ry)
+    iVec.set(x, y, z)
+    iScale.set(s, s, s)
+    iMat4.compose(iVec, iQuat, iScale)
+    mesh.setMatrixAt(i, iMat4)
+  }
+
+  /* ================================================================
    * 5b. 中庭陈设（照片 04）：台阶上的小玻璃罩、台缘的盆栽带、围住展台的红绳
    *
    * 这一节是这个厅里除了书之外**第一处不走 addGeo 的东西**：addGeo 是"同材质合并成
@@ -512,28 +544,6 @@ export function buildHall(materials) {
 
   {
     const D = ATRIUM_DRESSING
-    const UP = new THREE.Vector3(0, 1, 0)
-    const m4 = new THREE.Matrix4()
-    const qt = new THREE.Quaternion()
-    const v3 = new THREE.Vector3()
-    const s3 = new THREE.Vector3()
-
-    const makeInstanced = (geo, matKey, count) => {
-      const mesh = new THREE.InstancedMesh(geo, materials[matKey], count)
-      const policy = SHADOW[matKey] ?? { cast: true, receive: true }
-      mesh.castShadow = policy.cast
-      mesh.receiveShadow = policy.receive
-      mesh.frustumCulled = false // 实例散在整个中庭，包围球跨半厅，剔除反而害事（同书）
-      group.add(mesh)
-      return mesh
-    }
-    const place = (mesh, i, x, y, z, ry = 0, s = 1) => {
-      qt.setFromAxisAngle(UP, ry)
-      v3.set(x, y, z)
-      s3.set(s, s, s)
-      m4.compose(v3, qt, s3)
-      mesh.setMatrixAt(i, m4)
-    }
 
     // —— 玻璃展柜：罩子 + 底座 + 里面那件"展品" ——
     const vs = D.vitrine
@@ -598,11 +608,11 @@ export function buildHall(materials) {
     segments.forEach(([p0, p1], i) => {
       const dir = p1.clone().sub(p0)
       const len = dir.length()
-      qt.setFromUnitVectors(UP, dir.normalize())
-      v3.copy(p0).add(p1).multiplyScalar(0.5)
-      s3.set(1, len, 1)
-      m4.compose(v3, qt, s3)
-      ropes.setMatrixAt(i, m4)
+      iQuat.setFromUnitVectors(UP_AXIS, dir.normalize())
+      iVec.copy(p0).add(p1).multiplyScalar(0.5)
+      iScale.set(1, len, 1)
+      iMat4.compose(iVec, iQuat, iScale)
+      ropes.setMatrixAt(i, iMat4)
     })
     ropes.instanceMatrix.needsUpdate = true
 
@@ -855,6 +865,31 @@ export function buildHall(materials) {
   /* ================================================================
    * 9. 家具：阅览桌 + 蓝椅、服务台、VR 区、绿植、展签
    * ================================================================ */
+
+  // —— 一层回廊的红沙发（照片 13）：坐体 + 靠背 + 两扶手合成一个几何，坐垫另一档红 ——
+  {
+    const body = mergeGeometries([
+      new THREE.BoxGeometry(1.7, 0.42, 0.78).translate(0, 0.21, 0), // 坐体
+      new THREE.BoxGeometry(1.7, 0.46, 0.2).translate(0, 0.65, -0.29), // 靠背
+      new THREE.BoxGeometry(0.18, 0.26, 0.78).translate(0.76, 0.55, 0), // 扶手
+      new THREE.BoxGeometry(0.18, 0.26, 0.78).translate(-0.76, 0.55, 0),
+    ])
+    const cushionGeo = mergeGeometries([
+      new THREE.BoxGeometry(0.72, 0.1, 0.6).translate(0.44, 0.47, 0.02),
+      new THREE.BoxGeometry(0.72, 0.1, 0.6).translate(-0.44, 0.47, 0.02),
+    ])
+    const sofas = makeInstanced(body, 'hallSofa', GALLERY_SOFAS.length)
+    const cushions = makeInstanced(cushionGeo, 'hallSofaCushion', GALLERY_SOFAS.length)
+    GALLERY_SOFAS.forEach((sf, i) => {
+      place(sofas, i, sf.x, sf.y, sf.z, sf.ry)
+      place(cushions, i, sf.x, sf.y, sf.z, sf.ry)
+      // ry 是 ±90°，长边从 x 换到了 z —— AABB 得跟着对调，不然碰撞盒是横的
+      const along = Math.abs(Math.sin(sf.ry)) > 0.5
+      addColliderBox(sf.x, sf.y + 0.45, sf.z, along ? 0.9 : 1.9, 0.9, along ? 1.9 : 0.9, 'sofa')
+    })
+    sofas.instanceMatrix.needsUpdate = true
+    cushions.instanceMatrix.needsUpdate = true
+  }
 
   for (const tb of TABLES) {
     addBox('desk', { w: 2.4, h: 0.06, d: 1.0, x: tb.x, y: 0.75, z: tb.z, tile: 1.2, collide: true, tag: 'table' })

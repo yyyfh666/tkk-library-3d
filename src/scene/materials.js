@@ -287,6 +287,8 @@ const SPECS = {
   },
   hallRope: { color: '#8E2230' }, // 红丝绒隔离绳：绒面不该反光，lambert 正好
   hallRelic: { color: '#FFFFFF' }, // 玻璃罩里那件"展品"：颜色走 instanceColor，材质必须纯白
+  hallSofa: { color: '#8E3A34' }, // 一层回廊的暗红沙发（照片 13 里那几件）
+  hallSofaCushion: { color: '#B04E42' }, // 坐垫比沙发体亮一档，不然整只是块红砖
   hallPot: { color: '#D8CBA6' }, // 展台上的浅黄陶盆（照片里一整排就是它）
   hallShrub: {
     color: '#FFFFFF', // ⚠️ 必须接近纯白：颜色走 InstancedMesh 的 instanceColor（同书脊的规矩）
