@@ -76,6 +76,13 @@ export const HALL_HOTSPOTS = [
     position: HOTSPOT_ANCHORS.vr,
   },
   {
+    id: 'screen',
+    label: '数字展屏',
+    title: '一楼数字展屏',
+    body: '入口内侧的独立展屏：学术讲座、校园宣传、嘉庚文化、科研成果、学生作品、新书推荐与活动公告循环播放。右栏可以换节目，AI 馆员也能直接切到某一档。',
+    position: HOTSPOT_ANCHORS.screen,
+  },
+  {
     id: 'atrium',
     label: '中庭挑空',
     title: '中庭挑空 · 层叠看台',
@@ -93,7 +100,7 @@ export const HALL_HOTSPOTS = [
     id: 'exhibit',
     label: '展览区',
     title: '展览区 · 展墙',
-    body: '北墙这段是红砖展墙，挂着三幅条幅，轨道灯打在上面。',
+    body: '北墙这段是红砖展墙，十幅竖排挂轴沿墙展开，中间留白给陈嘉庚全息演讲；旁边还有嘉庚文化、科研成果与学生作品的数字展屏。',
     position: HOTSPOT_ANCHORS.exhibit,
   },
 ]

@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import { fetchBookLocation } from './mockBooks.js'
 import { VR_BOOKS, getVrBook } from './vrBooks.js'
 import { HOLO_CHAPTERS, HOLO_CHAPTER_IDS, holoChapterIndex } from './holoChapters.js'
+import { DEFAULT_PROGRAM_ID } from './lobbyPrograms.js'
+import { answerLibrarian, SUGGESTIONS } from './librarian.js'
 
 /**
  * 全厅共享状态（Zustand）。
@@ -62,6 +64,66 @@ export const useHallStore = create((set, get) => ({
   // ===================== 书架信息屏 =====================
   hoveredBook: null, // 鼠标/准星正指着的那本书（来自 3D 射线）
   setHoveredBook: (book) => set((s) => (s.hoveredBook?.id === book?.id ? {} : { hoveredBook: book })),
+
+  // ===================== 一楼数字展屏 =====================
+  // 引擎按 programId/playing 重画屏幕；slideIndex 由引擎每 7 秒回写一次，给右栏显示页码。
+  screen: { programId: DEFAULT_PROGRAM_ID, playing: true, slideIndex: 0 },
+  setScreenProgram: (programId) =>
+    set((s) => (s.screen.programId === programId ? {} : { screen: { ...s.screen, programId, slideIndex: 0 } })),
+  toggleScreenPlaying: () => set((s) => ({ screen: { ...s.screen, playing: !s.screen.playing } })),
+  setScreenSlide: (slideIndex) =>
+    set((s) => (s.screen.slideIndex === slideIndex ? {} : { screen: { ...s.screen, slideIndex } })),
+
+  // ===================== AI 馆员（本地演示）=====================
+  // 只有这一处会同时改 librarian 与 screen：问答里带 screenId 时，顺手把节目放上大屏。
+  librarian: {
+    pending: false,
+    messages: [
+      {
+        id: 'hello',
+        role: 'assistant',
+        text: '你好，我是一楼 AI 馆员。可以帮你找书、查开放时间，或把讲座、展览、新书和活动公告放上一楼数字展屏。',
+        suggestions: SUGGESTIONS,
+      },
+    ],
+  },
+  askLibrarian: async (raw) => {
+    const text = String(raw ?? '').trim()
+    if (!text) return
+    const stamp = Date.now()
+    set((s) => ({
+      librarian: {
+        ...s.librarian,
+        pending: true,
+        messages: [...s.librarian.messages, { id: `u${stamp}`, role: 'user', text }],
+      },
+    }))
+    const reply = await answerLibrarian(text)
+    set((s) => ({
+      librarian: {
+        ...s.librarian,
+        pending: false,
+        messages: [...s.librarian.messages, { id: `a${stamp}`, role: 'assistant', ...reply }],
+      },
+      ...(reply.screenId
+        ? { screen: { ...s.screen, programId: reply.screenId, playing: true, slideIndex: 0 } }
+        : {}),
+    }))
+  },
+  clearLibrarian: () =>
+    set({
+      librarian: {
+        pending: false,
+        messages: [
+          {
+            id: `hello${Date.now()}`,
+            role: 'assistant',
+            text: '对话已清空。可以继续问我馆藏、开放时间、活动或一楼大屏。',
+            suggestions: SUGGESTIONS,
+          },
+        ],
+      },
+    }),
 
   // ===================== VR 沉浸阅读舱（场景四）=====================
   // 两边分工和全息一样：引擎按相机距离推 active（走进去就亮），

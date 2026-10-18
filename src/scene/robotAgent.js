@@ -172,7 +172,16 @@ export function createRobotAgent({
         enterCruise()
         return true
       }
-      const path = planPath(grid, [st.x, st.z], point)
+      // 目标点必须归一化成 [x, z] 两个有限数再进 A*：planPath 只按下标读，
+      // 传进来一个 {x, z} 对象的话两个下标都是 undefined → NaN 格 → "找不到路"，
+      // 表现为"按了找书机器人不动、面板只报一句过不去"，查起来很久。宁可在这里拦。
+      const p = Array.isArray(point) ? point : [point?.x, point?.z]
+      if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) {
+        console.warn('[robotAgent] 目标点不是 [x, z] 也不是 {x, z}，已拒绝：', point)
+        onStateChange?.({ status: 'failed', label: `${label}（目标点无效）` })
+        return false
+      }
+      const path = planPath(grid, [st.x, st.z], [p[0], p[1]])
       if (!path || path.length < 2) {
         onStateChange?.({ status: 'failed', label: `${label}（过不去）` })
         return false

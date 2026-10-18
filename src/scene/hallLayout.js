@@ -500,6 +500,27 @@ export const VR_READ = {
   triggerRadius: 4.2, // 相机进这个圈开始"放映"（地毯东缘约 5.6m、毯心约 2.8m）
 }
 
+/**
+ * 一楼数字展屏（老师建议的"虚拟显示屏"）。
+ *
+ * 位置放在入口内侧偏西的空地上：从中庭南缘（z = 5.5）再往南退 0.85m，
+ * 避开展台与层叠看台；朝 +z（入口方向），进门第一眼就能看到。
+ * 屏幕本体在 lobbyScreen.js 里用 CanvasTexture 画，底座/边框在 hall.js 里砌。
+ */
+export const LOBBY_SCREEN = {
+  x: -13.2,
+  y: 1.98,
+  z: 6.35,
+  width: 2.86,
+  height: 1.61, // 16:9
+  ry: 0, // PlaneGeometry 默认朝 +z
+  baseHeight: 1.1,
+  baseWidth: 3.12,
+  baseDepth: 0.36,
+  defaultProgramId: 'lecture',
+  triggerRadius: 7,
+}
+
 /* ------------------------------------------------------------------ *
  * 外墙开窗（南北东西四面，每层一条窗带；南墙中间是入口）
  * ------------------------------------------------------------------ */
@@ -581,6 +602,7 @@ export const HOTSPOT_ANCHORS = {
   atrium: [0, 3.1, 3.2],
   desk: [13, 1.6, 3.4],
   exhibit: [0, 2.2, -11.2],
+  screen: [-13.2, 3.15, 6.35],
 }
 
 /** 机器人的巡航路径：围着中庭的圆角矩形，采样成折线（按弧长参数化，首尾相接） */
@@ -646,6 +668,7 @@ export const HALL_LAYOUT = {
   TABLES,
   COUNTER,
   VR_AREA,
+  LOBBY_SCREEN,
   WALLS,
   ROBOT_PATH,
 }

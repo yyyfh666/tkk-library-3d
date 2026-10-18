@@ -4,7 +4,16 @@ import { ISLAND_HOTSPOTS, HALL_HOTSPOTS } from './scene/hotspots.js'
 import IntroPanel from './ui/IntroPanel.jsx'
 import HotspotChips from './ui/HotspotChips.jsx'
 import InfoCard from './ui/InfoCard.jsx'
-import { HallGuide, BookCard, HoloStory, HoloTheatre, VrReading, CheckinToast } from './ui/HallHUD.jsx'
+import {
+  HallGuide,
+  BookCard,
+  HoloStory,
+  HoloTheatre,
+  VrReading,
+  CheckinToast,
+  AiLibrarian,
+  LobbyScreenCard,
+} from './ui/HallHUD.jsx'
 import { useHallStore } from './state/store.js'
 import { SceneControls, Hint } from './ui/Controls.jsx'
 
@@ -231,6 +240,8 @@ export default function App() {
         <InfoCard hotspot={selected} onClose={() => setSelected(null)} onEnterHall={enterHall} />
       ) : (
         <div className="hall-rail">
+          <AiLibrarian />
+          <LobbyScreenCard />
           <HallGuide />
           <BookCard />
           <HoloStory />

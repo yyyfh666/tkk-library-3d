@@ -19,6 +19,7 @@ import {
   TABLES,
   COUNTER,
   VR_AREA,
+  LOBBY_SCREEN,
   WALLS,
   ROBOT_PATH,
   HOTSPOT_ANCHORS,
@@ -978,6 +979,62 @@ export function buildHall(materials) {
     screen.translate(-halfW + 0.5, 2.0, VR_AREA.z + 1.2)
     addGeo('screen', screen)
     addColliderBox(-halfW + 0.5, 2.0, VR_AREA.z + 1.2, 0.4, 2.4, 4.0, 'solid') // 幕布也要挡人
+  }
+
+  // 一楼数字展屏：入口内侧偏西的独立展屏（屏幕本体在 lobbyScreen.js）
+  {
+    const S = LOBBY_SCREEN
+    // 底座：深色花岗岩，压住整块屏，避免"一块电视浮在空中"
+    addBox('hallGranite', {
+      w: S.baseWidth,
+      h: S.baseHeight,
+      d: S.baseDepth,
+      x: S.x,
+      y: S.baseHeight / 2,
+      z: S.z - 0.06,
+      tile: 1.2,
+      collide: false,
+      tag: 'screen-base',
+    })
+    addColliderBox(S.x, S.baseHeight / 2, S.z - 0.06, S.baseWidth, S.baseHeight, S.baseDepth, 'screen-base')
+
+    // 屏幕金属边框：比显示面大一圈，装在显示面后面
+    addBox('hallMetal', {
+      w: S.width + 0.16,
+      h: S.height + 0.16,
+      d: 0.1,
+      x: S.x,
+      y: S.y,
+      z: S.z - 0.08,
+      tile: 0.8,
+      collide: false,
+      tag: 'screen-frame',
+    })
+    addColliderBox(S.x, S.y, S.z - 0.08, S.width + 0.16, S.height + 0.16, 0.1, 'screen-frame')
+
+    // 底座与屏幕之间的短颈
+    addBox('hallMetal', {
+      w: 0.34,
+      h: 0.22,
+      d: 0.2,
+      x: S.x,
+      y: S.baseHeight + 0.1,
+      z: S.z - 0.08,
+      tile: 0.6,
+      collide: false,
+    })
+
+    // 屏幕上方的小铭牌：不抢画面，只在侧面视角看得出这是一件"展屏"
+    addBox('hallMetal', {
+      w: 0.46,
+      h: 0.1,
+      d: 0.06,
+      x: S.x + S.width / 2 - 0.28,
+      y: S.y + S.height / 2 + 0.13,
+      z: S.z - 0.02,
+      tile: 0.4,
+      collide: false,
+    })
   }
 
   // 绿植（角落）

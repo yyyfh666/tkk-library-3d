@@ -1,3 +1,6 @@
 node_modules/
 dist/
 *.local
+
+# 本地预览日志
+.preview-*.log

@@ -3,6 +3,7 @@ import { ROBOT_POIS, SHELF_UNITS_L0, shelfStandPoint } from '../scene/hallLayout
 import { useHallStore } from '../state/store.js'
 import { VR_BOOKS, getVrBook } from '../state/vrBooks.js'
 import { HOLO_CHAPTERS, getHoloChapter, holoChapterIndex } from '../state/holoChapters.js'
+import { LOBBY_PROGRAMS, getLobbyProgram } from '../state/lobbyPrograms.js'
 
 /**
  * 三楼大厅的交互面板（场景二/三）。
@@ -128,6 +129,166 @@ export function HallGuide() {
         {hoveredBook
           ? `准星：${hoveredBook.title} · ${hoveredBook.callNumber} · 第 ${hoveredBook.board} 层 · ${hoveredBook.status}`
           : '走进中庭，第一视角盯着书脊可看馆藏'}
+      </p>
+    </section>
+  )
+}
+
+/**
+ * 一楼数字展屏的遥控（老师建议里的"虚拟显示屏"）。
+ * 屏幕本体在 3D 里循环播放，这张卡只管"放哪一档、停不停"。
+ */
+export function LobbyScreenCard() {
+  const screen = useHallStore((s) => s.screen)
+  const setScreenProgram = useHallStore((s) => s.setScreenProgram)
+  const toggleScreenPlaying = useHallStore((s) => s.toggleScreenPlaying)
+  const program = getLobbyProgram(screen.programId)
+  const index = LOBBY_PROGRAMS.findIndex((p) => p.id === program.id)
+  const next = LOBBY_PROGRAMS[(index + 1) % LOBBY_PROGRAMS.length]
+
+  return (
+    <section className="hud-card hud-card--screen">
+      <p className="hud-card__kind">一楼数字展屏 · DIGITAL WALL</p>
+      <h3 className="hud-card__title">
+        {program.kind} <em>{program.tag}</em>
+      </h3>
+      <p className="hud-card__sub">{program.title} · {program.subtitle}</p>
+
+      <div className="screen-programs" role="group" aria-label="选择展屏节目">
+        {LOBBY_PROGRAMS.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            className={p.id === program.id ? 'screen-chip screen-chip--on' : 'screen-chip'}
+            onClick={() => setScreenProgram(p.id)}
+          >
+            {p.nav}
+          </button>
+        ))}
+      </div>
+
+      <div className="screen-status">
+        <span className="screen-status__dot" data-playing={screen.playing} aria-hidden="true" />
+        <span>
+          {screen.playing ? '循环播放中' : '已暂停'} · 第 {screen.slideIndex + 1} / {program.slides.length} 页
+        </span>
+      </div>
+
+      <div className="hud-actions">
+        <button className="hud-btn hud-btn--primary" type="button" onClick={toggleScreenPlaying}>
+          {screen.playing ? '暂停展屏' : '继续播放'}
+        </button>
+        <button className="hud-btn" type="button" onClick={() => setScreenProgram(next.id)}>
+          下一档
+        </button>
+      </div>
+      <p className="hud-card__note">
+        节目单是演示内容；屏幕在入口内侧偏西，面向大门。走近可以看到实时画面。
+      </p>
+    </section>
+  )
+}
+
+/**
+ * AI 馆员（本地演示）。
+ *
+ * 故意不接外部大模型：规则可解释、离线可跑；问答里带 screenId 时，
+ * store 会顺手把对应节目放上一楼展屏，形成"问一句 → 大屏换一档"的闭环。
+ */
+export function AiLibrarian() {
+  const librarian = useHallStore((s) => s.librarian)
+  const ask = useHallStore((s) => s.askLibrarian)
+  const clear = useHallStore((s) => s.clearLibrarian)
+  const setScreenProgram = useHallStore((s) => s.setScreenProgram)
+  const commandRobot = useHallStore((s) => s.commandRobot)
+  const [text, setText] = useState('')
+  const listRef = useRef(null)
+
+  useEffect(() => {
+    const el = listRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [librarian.messages.length, librarian.pending])
+
+  const submit = (event) => {
+    event.preventDefault()
+    const value = text.trim()
+    if (!value || librarian.pending) return
+    setText('')
+    ask(value)
+  }
+
+  const goToBook = (book) => {
+    const unit = SHELF_UNITS_L0.find((s) => s.id === book.shelfId)
+    const point = unit ? shelfStandPoint(unit) : ROBOT_POIS.exhibit.point
+    commandRobot({
+      point,
+      label: `前往 ${book.shelfId} · ${book.title}`,
+      payload: { kind: 'book', book },
+    })
+  }
+
+  return (
+    <section className="hud-card hud-card--ai">
+      <div className="ai-head">
+        <div>
+          <p className="hud-card__kind">AI 馆员 · 本地演示</p>
+          <h3 className="hud-card__title">问一句，书目和大屏一起动</h3>
+        </div>
+        <button className="ai-clear" type="button" onClick={clear}>
+          清空
+        </button>
+      </div>
+
+      <div className="ai-log" ref={listRef} aria-live="polite">
+        {librarian.messages.slice(-8).map((msg, i, arr) => {
+          const isLast = i === arr.length - 1
+          return (
+            <div key={msg.id} className={`ai-msg ai-msg--${msg.role}`}>
+              <p>{msg.text}</p>
+              {msg.books?.length > 0 && (
+                <div className="ai-books">
+                  {msg.books.map((book) => (
+                    <button key={book.id} type="button" onClick={() => goToBook(book)}>
+                      <span>{book.title}</span>
+                      <em>{book.shelfId} · {book.status}</em>
+                    </button>
+                  ))}
+                </div>
+              )}
+              {msg.screenId && (
+                <button className="ai-screen-btn" type="button" onClick={() => setScreenProgram(msg.screenId)}>
+                  在一楼大屏再看一次
+                </button>
+              )}
+              {isLast && msg.suggestions?.length > 0 && (
+                <div className="ai-suggestions">
+                  {msg.suggestions.map((s) => (
+                    <button key={s} type="button" onClick={() => ask(s)} disabled={librarian.pending}>
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )
+        })}
+        {librarian.pending && <p className="ai-thinking">正在查馆藏与展屏节目…</p>}
+      </div>
+
+      <form className="ai-form" onSubmit={submit}>
+        <input
+          className="hud-search__input"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="问馆藏、活动，或“播放嘉庚文化”"
+          aria-label="向 AI 馆员提问"
+        />
+        <button className="hud-search__btn" type="submit" disabled={librarian.pending || !text.trim()}>
+          发送
+        </button>
+      </form>
+      <p className="hud-card__note">
+        本地规则演示，未接入外部大模型；书目、排期与馆藏状态均为示意数据。
       </p>
     </section>
   )

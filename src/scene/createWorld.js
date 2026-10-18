@@ -162,6 +162,7 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
       robotState: () => worlds.hall.robotState?.() ?? null,
       hologramState: () => worlds.hall.hologramState?.() ?? null,
       vrState: () => worlds.hall.vrState?.() ?? null,
+      screenState: () => worlds.hall.screenState?.() ?? null,
       speechLog: () => worlds.hall.speechLog?.() ?? [],
       exitHolo: () => worlds.hall.exitHolo?.(),
       navPlan: (from, to) => worlds.hall.navPlan?.(from, to) ?? null,

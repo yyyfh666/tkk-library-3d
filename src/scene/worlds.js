@@ -23,6 +23,7 @@ import { createRobotAgent } from './robotAgent.js'
 import { createShelfScreens, pickBook, createHighlightMarker } from './shelfInteraction.js'
 import { createHologram } from './hologram.js'
 import { createVrReading } from './vrReading.js'
+import { createLobbyScreen } from './lobbyScreen.js'
 import { createBurst } from './particles.js'
 import { useHallStore } from '../state/store.js'
 import { getBookByInstanceMeta } from '../state/mockBooks.js'
@@ -347,11 +348,17 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   const vrReading = createVrReading()
   scene.add(vrReading.group)
 
+  // 一楼数字展屏：入口内侧的独立展屏（讲座 / 校园宣传 / 展览 / 新书 / 公告）
+  const lobbyScreen = createLobbyScreen()
+  scene.add(lobbyScreen.group)
+
   let pinnedBook = null // 找书命中的那本（书架屏与高亮框的"钉子"）
   let pinnedItem = null // 它在 hall.js 里的实例元数据（带包围盒）
   let hoverShelfId = null // 鼠标/准星当前指着哪架书架
   let vrNear = false
   const lastVr = { bookId: null, page: -1 } // 防 store 每次 set() 都重画
+  let lastScreen = { programId: null, playing: null }
+  let lastScreenSlide = -1
 
   // —— 全息演出（场景三）——
   let holoNear = false // 投影亮着（5m 进 / 8m 出）
@@ -405,6 +412,13 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       lastVr.bookId = vr.bookId
       lastVr.page = vr.page
       vrReading.show(vr.bookId, vr.page)
+    }
+    // 一楼展屏：节目或播放状态变了才重画（每帧的动画由 lobbyScreen.tick 自己推）
+    const scr = state.screen
+    if (scr.programId !== lastScreen.programId || scr.playing !== lastScreen.playing) {
+      lastScreen = { programId: scr.programId, playing: scr.playing }
+      lobbyScreen.setProgram(scr.programId)
+      lobbyScreen.setPlaying(scr.playing)
     }
     // 全息章节：UI 点了时间轴 → 换贴图；正在演出就把旁白也换掉
     // （speech 内部是先 cancel 再 speak，所以连点节点不会两条声音叠在一起）
@@ -667,6 +681,12 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       burst.update(dt)
       hologram.update(elapsed, dt)
       vrReading.tick(dt)
+      lobbyScreen.tick(dt)
+      const scrState = lobbyScreen.state()
+      if (scrState.slideIndex !== lastScreenSlide) {
+        lastScreenSlide = scrState.slideIndex
+        useHallStore.getState().setScreenSlide(scrState.slideIndex)
+      }
 
       // 全息：进 5m 亮、退 8m 关，中间留着滞回带（免得站在边界上反复开关）
       const holoDist = camera.position.distanceTo(hologram.center)
@@ -786,6 +806,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       distance: +camera.position.distanceTo(hologram.center).toFixed(2),
     }),
     vrState: () => ({ ...vrReading.state(), near: vrNear }),
+    screenState: () => lobbyScreen.state(),
     /** 旁白的状态与流水（测试断言"每次换章都先掐后念、没有重复调用"） */
     speechLog: () => ({
       log: speech.getLog(),
@@ -890,6 +911,7 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       marker.dispose()
       hologram.dispose()
       vrReading.dispose()
+      lobbyScreen.dispose()
       burst.dispose()
       walk.dispose()
       controls.dispose()
