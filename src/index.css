@@ -555,20 +555,165 @@ body {
   white-space: nowrap;
 }
 
+/* 未锁指针时的引导卡：容器不吃鼠标（点空白处仍然进第一视角），只有按钮可点 */
 .walk-overlay {
   position: absolute;
   left: 50%;
   bottom: 96px;
   transform: translateX(-50%);
-  margin: 0;
-  padding: 10px 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  max-width: calc(100vw - 48px);
+  padding: 8px 10px 8px 20px;
   border-radius: 999px;
-  background: rgba(16, 22, 30, 0.66);
+  background: rgba(16, 22, 30, 0.72);
   color: #fff;
   font-size: 13px;
   letter-spacing: 1px;
   pointer-events: none;
   white-space: nowrap;
+}
+
+.walk-overlay__text {
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.walk-overlay__exit {
+  flex: none;
+  padding: 8px 14px;
+  font-size: 12.5px;
+  pointer-events: auto;
+  backdrop-filter: none;
+}
+
+/* 指针锁定后全页收不到鼠标，这条提示是唯一的"逃生说明" */
+.walk-badge {
+  position: absolute;
+  left: 50%;
+  top: 88px;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 8px 18px;
+  border-radius: 999px;
+  background: rgba(16, 22, 30, 0.72);
+  color: #fff;
+  font-size: 12.5px;
+  letter-spacing: 1px;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* ---------------- 启动遮罩 / WebGL 失败兜底 ---------------- */
+.boot {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 12px;
+  background: var(--page);
+  color: var(--ink);
+  pointer-events: none;
+  z-index: 30;
+}
+
+.boot__ring {
+  width: 34px;
+  height: 34px;
+  border: 2px solid var(--panel-line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  /* 主线程被建世界占满时，这条动画仍然在合成器上跑，所以"看着还活着" */
+  animation: boot-spin 0.9s linear infinite;
+}
+
+@keyframes boot-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.boot__text {
+  margin: 0;
+  font-size: 14px;
+  letter-spacing: 2px;
+}
+
+.boot__sub {
+  margin: 0;
+  font-size: 11.5px;
+  letter-spacing: 0.8px;
+  color: var(--ink-faint);
+}
+
+.crash {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, calc(100vw - 48px));
+  padding: 26px 26px 22px;
+  border: 1px solid var(--panel-line);
+  border-radius: 18px;
+  background: var(--panel);
+  color: var(--ink);
+  backdrop-filter: blur(10px);
+  z-index: 40;
+}
+
+.crash h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  letter-spacing: 1px;
+}
+
+.crash p {
+  margin: 0 0 12px;
+  font-size: 12.5px;
+  line-height: 1.75;
+  color: var(--ink-soft);
+}
+
+.crash__detail {
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  word-break: break-all;
+  opacity: 0.7;
+}
+
+/* ---------------- ?diag=1 探针面板 ---------------- */
+.diag {
+  position: absolute;
+  left: 16px;
+  top: 88px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(8, 12, 18, 0.82);
+  color: #d8e2ee;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.diag__row {
+  display: flex;
+  gap: 10px;
+}
+
+.diag__key {
+  min-width: 46px;
+  color: #7f93aa;
+}
+
+.diag__value {
+  max-width: 46vw;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ==================================================================

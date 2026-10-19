@@ -171,13 +171,22 @@ export function createWalkControls({
     get moveLocked() {
       return moveLocked
     },
-    /** 在用户手势里立刻请求指针锁（点按钮时调用） */
+    /** 在用户手势里请求指针锁（点画面时调用） */
     requestLock() {
+      const el = pl.domElement
+      const plain = () => {
+        try {
+          el.requestPointerLock()
+        } catch {
+          /* 浏览器直接拒绝，UI 会继续显示"点击画面" */
+        }
+      }
       try {
-        const result = pl.domElement.requestPointerLock({ unadjustedMovement: true })
-        result?.catch?.(() => {}) // 被拒就当没锁上，UI 会显示"点击画面继续"
+        const result = el.requestPointerLock({ unadjustedMovement: true })
+        // Safari 等不支持 unadjustedMovement 的会 reject，退回无参数版本
+        if (result?.catch) result.catch(plain)
       } catch {
-        /* 老浏览器没有 promise 版，忽略 */
+        plain()
       }
     },
     unlock() {

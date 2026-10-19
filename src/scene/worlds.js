@@ -201,6 +201,9 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
   controls.maxTargetRadius = 30
   applyViewLimits(controls, HALL_VIEWS.dollhouse)
   controls.update(0)
+  // 两个 world 各建了一个 OrbitControls，而且挂在**同一个 canvas** 上。
+  // 大厅还没切过去之前必须关掉，否则岛的每一次拖动都会被两套控制器同时吃到。
+  controls.enabled = false
 
   const hotspots = createHotspots({
     container: renderer.domElement.parentElement,
@@ -772,10 +775,17 @@ function createHallWorld(renderer, materials, { onHotspotSelect, onWalkChange, o
       hotspots.update(camera, width, height)
     },
     gotoView,
-    /** 走进第一视角（App 的按钮调它）：指针锁在用户手势里立刻请求，飞行途中就能接管鼠标 */
+    /**
+     * 走进第一视角（App 的按钮调它）。
+     *
+     * ⚠️ 这里**故意不** requestPointerLock。指针一锁上，整个页面就再收不到鼠标了：
+     * 所有按钮都点不动、拖动也不响应，只有 Esc 能解锁 —— 访客不知道这一点，
+     * 会以为"进到这个页面就卡死了"（2026-10 线上反馈就是这个）。而且"走进大厅"和
+     * "第一视角漫游"两个主按钮几乎在同一个位置，连点两下就很容易误进。
+     * 现在改成：进来后画面中央提示"点击画面开始"，由用户自己决定什么时候锁指针。
+     */
     enterWalk() {
       if (walkActive || viewMode === 'walk') return
-      walk.requestLock()
       gotoView('walk')
     },
     exitWalk() {

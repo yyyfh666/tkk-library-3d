@@ -13,7 +13,17 @@ import { useHallStore } from '../state/store.js'
  */
 export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWalkHover }) {
   const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' })
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+
+  // ---- 绘制分辨率自适应 ------------------------------------------------
+  // 高分屏 + 集显（或者浏览器关掉了硬件加速）时，2x 的绘制缓冲会把帧率压到个位数。
+  // 这时候画面还在转（rAF 没停），但拖动、点击都要等好几百毫秒才反馈，访客的感受
+  // 就是"画面在动却怎么都拖不动、点不了"。所以持续量帧率，连续偏低就往下退一档。
+  const deviceRatio = window.devicePixelRatio || 1
+  const qualityParam = new URLSearchParams(window.location.search).get('quality')
+  const qualityLadder = [...new Set([Math.min(deviceRatio, 2), Math.min(deviceRatio, 1.5), 1, 0.75])]
+  let qualityStep = qualityParam === 'low' ? qualityLadder.length - 1 : 0
+  let measuredFps = 0
+  renderer.setPixelRatio(qualityLadder[qualityStep])
   renderer.shadowMap.enabled = true
   // r186 已经删掉了 PCFSoftShadowMap（常量还在但会被强制降级 + 打 warn），用默认的 PCF
   renderer.shadowMap.type = THREE.PCFShadowMap
@@ -42,6 +52,9 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
   let phaseTarget = 0
   let frameId = 0
   let disposed = false
+  let fpsFrames = 0
+  let fpsSince = performance.now()
+  let fpsSlowRounds = 0
 
   const timer = new THREE.Timer()
 
@@ -81,6 +94,27 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
     const world = worlds[activeName]
     world.update(elapsed, dt)
     renderer.render(world.scene, world.camera)
+
+    // 每 1.2 秒统计一次帧率；连续两轮低于 25fps 就降一档绘制分辨率（最低 0.75x）
+    fpsFrames += 1
+    const now = performance.now()
+    if (now - fpsSince >= 1200) {
+      measuredFps = (fpsFrames * 1000) / (now - fpsSince)
+      fpsFrames = 0
+      fpsSince = now
+      if (measuredFps < 25 && qualityStep < qualityLadder.length - 1) {
+        if (fpsSlowRounds >= 1 && qualityParam !== 'high') {
+          qualityStep += 1
+          renderer.setPixelRatio(qualityLadder[qualityStep])
+          resize()
+          fpsSlowRounds = 0
+        } else {
+          fpsSlowRounds += 1
+        }
+      } else {
+        fpsSlowRounds = 0
+      }
+    }
   }
   frame()
 
@@ -115,6 +149,10 @@ export function createAppWorld({ container, onHotspotSelect, onWalkChange, onWal
     },
     get activeName() {
       return activeName
+    },
+    /** 给 ?diag=1 面板用：当前实测帧率 / 绘制分辨率倍率 */
+    quality() {
+      return { fps: Math.round(measuredFps), pixelRatio: renderer.getPixelRatio(), step: qualityStep }
     },
     dispose() {
       disposed = true
